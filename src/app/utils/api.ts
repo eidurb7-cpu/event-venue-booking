@@ -82,14 +82,23 @@ export interface VendorPost {
 }
 
 async function request(path: string, options: RequestInit = {}) {
+  const controller = new AbortController();
+  const timeoutMs = 30000;
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, {
       headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+      signal: controller.signal,
       ...options,
     });
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`API Timeout (${timeoutMs / 1000}s). Backend antwortet nicht: ${API_BASE}`);
+    }
     throw new Error(`API nicht erreichbar (${API_BASE}). Bitte starte den Backend-Server mit "npm run dev:api".`);
+  } finally {
+    window.clearTimeout(timeout);
   }
 
   const data = await res.json().catch(() => ({}));

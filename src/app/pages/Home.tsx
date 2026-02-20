@@ -11,18 +11,18 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Hero Section */}
-      <section className="bg-gradient-to-br from-purple-600 to-purple-900 text-white py-20">
+      <section className="bg-gradient-to-br from-purple-600 to-purple-900 text-white py-10 sm:py-20">
         <div className="container mx-auto px-4">
           <div className="max-w-3xl">
-            <h1 className="text-5xl font-bold mb-6">
+            <h1 className="text-3xl sm:text-5xl font-bold mb-4 sm:mb-6">
               {t('home.hero.title')}
             </h1>
-            <p className="text-xl mb-8 text-purple-100">
+            <p className="text-base sm:text-xl mb-6 sm:mb-8 text-purple-100">
               {t('home.hero.subtitle')}
             </p>
             <Link 
               to="/venues" 
-              className="inline-flex items-center gap-2 bg-white text-purple-600 px-8 py-4 rounded-lg font-semibold hover:bg-purple-50 transition-colors"
+              className="inline-flex items-center gap-2 bg-white text-purple-600 px-5 sm:px-8 py-3 sm:py-4 rounded-lg font-semibold hover:bg-purple-50 transition-colors"
             >
               {t('home.hero.cta')}
               <ArrowRight className="size-5" />
@@ -32,8 +32,8 @@ export default function Home() {
       </section>
 
       {/* Services Overview */}
-      <section className="py-16 container mx-auto px-4">
-        <h2 className="text-3xl font-bold text-gray-900 mb-12 text-center">
+      <section className="py-10 sm:py-16 container mx-auto px-4">
+        <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-8 sm:mb-12 text-center">
           {t('home.services.title')}
         </h2>
         
@@ -81,10 +81,10 @@ export default function Home() {
       </section>
 
       {/* Featured Venues */}
-      <section className="py-16 bg-white">
+      <section className="py-10 sm:py-16 bg-white">
         <div className="container mx-auto px-4">
-          <div className="flex items-center justify-between mb-12">
-            <h2 className="text-3xl font-bold text-gray-900">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-8 sm:mb-12">
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900">
               {t('home.featured.title')}
             </h2>
             <Link 
@@ -105,15 +105,15 @@ export default function Home() {
       </section>
 
       {/* CTA Section */}
-      <section className="py-20 bg-gradient-to-br from-purple-600 to-purple-900 text-white">
+      <section className="py-12 sm:py-20 bg-gradient-to-br from-purple-600 to-purple-900 text-white">
         <div className="container mx-auto px-4 text-center">
-          <h2 className="text-4xl font-bold mb-6">{t('home.cta.title')}</h2>
-          <p className="text-xl text-purple-100 mb-8 max-w-2xl mx-auto">
+          <h2 className="text-2xl sm:text-4xl font-bold mb-4 sm:mb-6">{t('home.cta.title')}</h2>
+          <p className="text-base sm:text-xl text-purple-100 mb-6 sm:mb-8 max-w-2xl mx-auto">
             {t('home.cta.subtitle')}
           </p>
           <Link 
             to="/venues" 
-            className="inline-flex items-center gap-2 bg-white text-purple-600 px-8 py-4 rounded-lg font-semibold hover:bg-purple-50 transition-colors"
+            className="inline-flex items-center gap-2 bg-white text-purple-600 px-5 sm:px-8 py-3 sm:py-4 rounded-lg font-semibold hover:bg-purple-50 transition-colors"
           >
             {t('home.cta.button')}
             <ArrowRight className="size-5" />

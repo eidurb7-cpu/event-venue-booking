@@ -98,19 +98,19 @@ export default function Booking() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12">
+    <div className="min-h-screen bg-gray-50 py-6 sm:py-12">
       <div className="container mx-auto px-4 max-w-6xl">
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">{t('booking.title')}</h1>
+        <div className="mb-6 sm:mb-8">
+          <h1 className="text-2xl sm:text-4xl font-bold text-gray-900 mb-3 sm:mb-4">{t('booking.title')}</h1>
           <p className="text-gray-600">{t('booking.subtitle')}</p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 sm:gap-8">
           <div className="lg:col-span-2">
-            <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-md p-8">
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">{t('booking.info.title')}</h2>
+            <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-md p-5 sm:p-8">
+              <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-5 sm:mb-6">{t('booking.info.title')}</h2>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">{t('booking.info.name')} *</label>
                   <input
@@ -317,7 +317,7 @@ export default function Booking() {
 
               <button
                 type="submit"
-                className="w-full bg-purple-600 text-white py-4 rounded-lg font-semibold hover:bg-purple-700 transition-colors flex items-center justify-center gap-2"
+                className="w-full bg-purple-600 text-white py-3 sm:py-4 rounded-lg font-semibold hover:bg-purple-700 transition-colors flex items-center justify-center gap-2"
               >
                 <Calendar className="size-5" />
                 {t('booking.submit')}
@@ -326,8 +326,8 @@ export default function Booking() {
           </div>
 
           <div className="lg:col-span-1">
-            <div className="bg-white rounded-xl shadow-md p-6 sticky top-24">
-              <h2 className="text-xl font-bold text-gray-900 mb-6">{t('booking.summary.title')}</h2>
+            <div className="bg-white rounded-xl shadow-md p-4 sm:p-6 lg:sticky lg:top-24">
+              <h2 className="text-lg sm:text-xl font-bold text-gray-900 mb-4 sm:mb-6">{t('booking.summary.title')}</h2>
 
               {bookingData ? (
                 <div className="space-y-6">

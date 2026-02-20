@@ -89,10 +89,10 @@ export default function RequestPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12">
+    <div className="min-h-screen bg-gray-50 py-6 sm:py-12">
       <div className="container mx-auto px-4 max-w-3xl">
-        <div className="bg-white rounded-xl shadow-md p-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Anfrage / Offer erstellen</h1>
+        <div className="bg-white rounded-xl shadow-md p-5 sm:p-8">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Anfrage / Offer erstellen</h1>
           <p className="text-gray-600 mb-6">
             Waehle die gewuenschten Dienstleistungen und dein Budget. Vendor koennen sich danach auf deine Anfrage bewerben.
           </p>
@@ -228,7 +228,7 @@ export default function RequestPage() {
             </div>
           )}
 
-          <div className="mt-5 flex items-center gap-4 text-sm">
+          <div className="mt-5 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-sm">
             <Link to="/customer-portfolio" className="text-purple-600 hover:text-purple-700">
               Zu meinem Portfolio (Anfragen & Angebote)
             </Link>

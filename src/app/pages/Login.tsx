@@ -97,10 +97,10 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12">
+    <div className="min-h-screen bg-gray-50 py-6 sm:py-12">
       <div className="container mx-auto px-4 max-w-md">
-        <div className="bg-white rounded-xl shadow-md p-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">{t('auth.login.title')}</h1>
+        <div className="bg-white rounded-xl shadow-md p-5 sm:p-8">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">{t('auth.login.title')}</h1>
           <p className="text-gray-600 mb-6">{t('auth.login.subtitle')}</p>
 
           <div className="mb-5">

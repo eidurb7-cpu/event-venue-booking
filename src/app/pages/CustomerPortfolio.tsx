@@ -70,10 +70,10 @@ export default function CustomerPortfolio() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12">
+    <div className="min-h-screen bg-gray-50 py-6 sm:py-12">
       <div className="container mx-auto px-4 max-w-5xl">
-        <div className="bg-white rounded-xl shadow-md p-8 mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Customer Portfolio</h1>
+        <div className="bg-white rounded-xl shadow-md p-5 sm:p-8 mb-6">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Customer Portfolio</h1>
           <p className="text-gray-600 mb-5">Anfragen verwalten und Vendor-Angebote akzeptieren oder ignorieren.</p>
           {isCustomerSession && (
             <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
@@ -95,7 +95,7 @@ export default function CustomerPortfolio() {
           <button
             type="button"
             onClick={() => loadRequests(customerEmail)}
-            className="mt-3 rounded-lg bg-purple-600 text-white px-4 py-2.5 hover:bg-purple-700"
+            className="mt-3 w-full sm:w-auto rounded-lg bg-purple-600 text-white px-4 py-2.5 hover:bg-purple-700"
           >
             Portfolio laden
           </button>
@@ -121,7 +121,7 @@ export default function CustomerPortfolio() {
 
         <div className="space-y-5">
           {requests.map((request) => (
-            <div key={request.id} className="bg-white rounded-xl border border-gray-200 p-6">
+            <div key={request.id} className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <h2 className="text-lg font-semibold text-gray-900">{request.id}</h2>
                 <span
@@ -154,7 +154,7 @@ export default function CustomerPortfolio() {
                 )}
 
                 {request.offers.map((offer) => (
-                  <div key={offer.id} className="rounded-lg border border-gray-200 p-4">
+                  <div key={offer.id} className="rounded-lg border border-gray-200 p-3 sm:p-4">
                     <div className="flex items-center justify-between gap-3 flex-wrap">
                       <p className="font-medium text-gray-900">{offer.vendorName}</p>
                       <span
@@ -179,25 +179,25 @@ export default function CustomerPortfolio() {
                     </p>
 
                     {offer.status === 'pending' && request.status === 'open' && (
-                      <div className="mt-3 flex items-center gap-2">
+                      <div className="mt-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                         <button
                           type="button"
                           onClick={() => decide(request.id, offer.id, 'accepted')}
-                          className="rounded-lg bg-green-600 text-white px-3 py-2 text-sm hover:bg-green-700"
+                          className="rounded-lg bg-green-600 text-white px-3 py-2 text-sm hover:bg-green-700 w-full sm:w-auto"
                         >
                           Akzeptieren
                         </button>
                         <button
                           type="button"
                           onClick={() => decide(request.id, offer.id, 'ignored')}
-                          className="rounded-lg bg-gray-200 text-gray-800 px-3 py-2 text-sm hover:bg-gray-300"
+                          className="rounded-lg bg-gray-200 text-gray-800 px-3 py-2 text-sm hover:bg-gray-300 w-full sm:w-auto"
                         >
                           Ignorieren
                         </button>
                         <button
                           type="button"
                           onClick={() => decide(request.id, offer.id, 'declined')}
-                          className="rounded-lg bg-red-100 text-red-700 px-3 py-2 text-sm hover:bg-red-200"
+                          className="rounded-lg bg-red-100 text-red-700 px-3 py-2 text-sm hover:bg-red-200 w-full sm:w-auto"
                         >
                           Ablehnen
                         </button>
