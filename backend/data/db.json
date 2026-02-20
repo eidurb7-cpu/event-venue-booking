@@ -1,0 +1,34 @@
+{
+  "customers": [],
+  "vendorApplications": [],
+  "serviceRequests": [
+    {
+      "id": "req_1771522453094",
+      "createdAt": "2026-02-19T17:34:13.094Z",
+      "status": "open",
+      "customerName": "Test Customer",
+      "customerEmail": "test.customer@example.com",
+      "selectedServices": [
+        "DJ"
+      ],
+      "budget": 1200,
+      "eventDate": null,
+      "notes": "API smoke test",
+      "offers": []
+    },
+    {
+      "id": "req_1771522419747",
+      "createdAt": "2026-02-19T17:33:39.747Z",
+      "status": "open",
+      "customerName": "Test Customer",
+      "customerEmail": "test.customer@example.com",
+      "selectedServices": [
+        "DJ"
+      ],
+      "budget": 1200,
+      "eventDate": null,
+      "notes": "API smoke test",
+      "offers": []
+    }
+  ]
+}

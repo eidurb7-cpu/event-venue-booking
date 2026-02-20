@@ -1,0 +1,163 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  customer
+  vendor
+  admin
+}
+
+enum VendorApplicationStatus {
+  pending_review
+  approved
+  rejected
+}
+
+enum ServiceRequestStatus {
+  open
+  closed
+  expired
+}
+
+enum VendorOfferStatus {
+  pending
+  accepted
+  declined
+  ignored
+}
+
+enum PaymentStatus {
+  unpaid
+  pending
+  paid
+  failed
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String
+  googleSub String?  @unique
+  role      UserRole @default(customer)
+  createdAt DateTime @default(now())
+}
+
+model VendorApplication {
+  id             String                  @id @default(cuid())
+  status         VendorApplicationStatus @default(pending_review)
+  businessName   String
+  contactName    String
+  email          String                  @unique
+  password       String
+  googleSub      String?                 @unique
+  city           String?
+  websiteUrl     String?
+  portfolioUrl   String?
+  businessIntro  String?
+  categories     Json?
+  documentName   String?
+  documentKey    String?
+  documentUrl    String?
+  stripeAccountId String?
+  createdAt      DateTime                @default(now())
+  posts          VendorPost[]
+  inquiries      VendorInquiry[]
+}
+
+model ServiceRequest {
+  id               String               @id @default(cuid())
+  createdAt        DateTime             @default(now())
+  status           ServiceRequestStatus @default(open)
+  offerResponseHours Int                @default(48)
+  expiresAt        DateTime
+  closedAt         DateTime?
+  closedReason     String?
+  customerName     String
+  customerEmail    String
+  selectedServices Json
+  budget           Int
+  eventDate        DateTime?
+  address          String?
+  notes            String?
+  offers           VendorOffer[]
+
+  @@index([customerEmail])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model VendorOffer {
+  id                 String           @id @default(cuid())
+  requestId          String
+  request            ServiceRequest   @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  vendorName         String
+  vendorEmail        String?
+  price              Int
+  message            String?
+  status             VendorOfferStatus @default(pending)
+  paymentStatus      PaymentStatus    @default(unpaid)
+  stripeSessionId    String?
+  stripePaymentIntent String?
+  paidAt             DateTime?
+  createdAt          DateTime         @default(now())
+
+  @@index([requestId])
+  @@index([status])
+  @@index([vendorEmail])
+  @@index([paymentStatus])
+  @@index([stripeSessionId])
+  @@index([stripePaymentIntent])
+}
+
+model ServiceCatalog {
+  id          String   @id @default(cuid())
+  name        String
+  category    String
+  description String?
+  basePrice   Int
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([category])
+}
+
+model VendorPost {
+  id                 String             @id @default(cuid())
+  vendorApplicationId String
+  vendorApplication  VendorApplication  @relation(fields: [vendorApplicationId], references: [id], onDelete: Cascade)
+  title              String
+  serviceName        String
+  description        String?
+  city               String?
+  basePrice          Int?
+  availability       Json?
+  isActive           Boolean            @default(true)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@index([vendorApplicationId])
+  @@index([isActive])
+}
+
+model VendorInquiry {
+  id                 String             @id @default(cuid())
+  vendorApplicationId String?
+  vendorApplication  VendorApplication? @relation(fields: [vendorApplicationId], references: [id], onDelete: SetNull)
+  vendorEmail        String
+  subject            String
+  message            String
+  status             String             @default("open")
+  createdAt          DateTime           @default(now())
+
+  @@index([vendorEmail])
+  @@index([status])
+}
