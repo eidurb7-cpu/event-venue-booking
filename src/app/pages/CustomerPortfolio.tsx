@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router';
 import { ServiceRequest, createStripeCheckoutSession, getCustomerRequests, setOfferStatus } from '../utils/api';
 import { getCurrentUser } from '../utils/auth';
 
@@ -99,6 +100,11 @@ export default function CustomerPortfolio() {
           >
             Portfolio laden
           </button>
+          <div className="mt-3">
+            <Link to="/invoices" className="text-sm text-purple-600 hover:text-purple-700">
+              Rechnungen anzeigen
+            </Link>
+          </div>
         </div>
 
         {error && (

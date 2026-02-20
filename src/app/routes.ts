@@ -11,6 +11,8 @@ import CustomerPortfolio from './pages/CustomerPortfolio';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import AdminDashboard from './pages/AdminDashboard';
+import Invoices from './pages/Invoices';
+import InvoiceDetail from './pages/InvoiceDetail';
 import NotFound from './pages/NotFound';
 import RouteError from './pages/RouteError';
 
@@ -29,6 +31,8 @@ export const router = createBrowserRouter([
       { path: 'login', Component: Login },
       { path: 'signup', Component: Signup },
       { path: 'admin', Component: AdminDashboard },
+      { path: 'invoices', Component: Invoices },
+      { path: 'invoice/:invoiceId', Component: InvoiceDetail },
       { path: 'venue/:id', Component: VenueDetail },
       { path: 'booking', Component: Booking },
       { path: '*', Component: NotFound },
