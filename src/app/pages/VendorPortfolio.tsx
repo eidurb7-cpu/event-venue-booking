@@ -219,15 +219,18 @@ export default function VendorPortfolio() {
     );
   }
 
-  if (vendorProfile?.status === 'rejected') {
+  if (vendorProfile && vendorProfile.status !== 'approved') {
     return (
       <div className="min-h-screen bg-gray-50 py-12">
         <div className="container mx-auto px-4 max-w-3xl">
-          <div className="bg-white rounded-xl border border-red-200 bg-red-50 p-8">
+          <div className="bg-white rounded-xl border border-yellow-200 bg-yellow-50 p-8">
             <h1 className="text-2xl font-bold text-gray-900 mb-2">Vendor Dashboard</h1>
             <p className="text-gray-800">
-              Dein Konto ist aktuell <strong>{vendorProfile?.status || 'rejected'}</strong>. Bitte Admin kontaktieren.
+              Dein Konto ist aktuell <strong>{vendorProfile?.status || 'pending_review'}</strong>. Bitte warten, bis Admin deine Bewerbung freigibt.
             </p>
+            {vendorProfile.status === 'rejected' && (
+              <p className="text-gray-700 mt-2">Deine Bewerbung wurde abgelehnt. Bitte Admin kontaktieren.</p>
+            )}
           </div>
         </div>
       </div>

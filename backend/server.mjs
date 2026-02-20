@@ -564,32 +564,7 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/api/auth/signup/customer') {
-      const body = await readBody(req);
-      const { name, email, password, googleSub } = body;
-      if (!name || !email || (!password && !googleSub)) {
-        return sendJson(res, 400, { error: 'Missing required fields' });
-      }
-
-      const existing = await prisma.user.findUnique({ where: { email } });
-      if (existing) return sendJson(res, 409, { error: 'Customer already exists' });
-
-      if (googleSub) {
-        const existingGoogle = await prisma.user.findFirst({ where: { googleSub } });
-        if (existingGoogle) return sendJson(res, 409, { error: 'Google account already linked' });
-      }
-
-      const customer = await prisma.user.create({
-        data: {
-          name,
-          email,
-          password: password || `google_${randomUUID()}`,
-          googleSub: googleSub || null,
-          role: 'customer',
-        },
-      });
-      return sendJson(res, 201, {
-        customer: { id: customer.id, name: customer.name, email: customer.email, role: customer.role, createdAt: customer.createdAt },
-      });
+      return sendJson(res, 400, { error: 'Customer signup is Google-only. Please use Google sign-in.' });
     }
 
     if (req.method === 'POST' && path === '/api/auth/signup/vendor') {
@@ -598,8 +573,8 @@ createServer(async (req, res) => {
       if (required.some((field) => !body[field])) {
         return sendJson(res, 400, { error: 'Missing required fields' });
       }
-      if (!body.password && !body.googleSub) {
-        return sendJson(res, 400, { error: 'Password or Google account is required' });
+      if (!body.googleSub) {
+        return sendJson(res, 400, { error: 'Vendor signup requires Google account verification.' });
       }
 
       const existing = await prisma.vendorApplication.findUnique({ where: { email: body.email } });
@@ -632,14 +607,14 @@ createServer(async (req, res) => {
           documentKey: body.documentKey || null,
           documentUrl: body.documentUrl || null,
           stripeAccountId: body.stripeAccountId || null,
-          status: 'approved',
+          status: 'pending_review',
         },
       });
 
       await sendMailSafe({
         to: application.email,
         subject: 'Vendor-Anfrage eingegangen',
-        text: 'Danke. Dein Vendor-Konto ist erstellt und direkt aktiv.',
+        text: 'Danke. Deine Vendor-Anfrage wurde empfangen und wird durch das Admin-Team geprueft.',
       });
       await sendMailSafe({
         to: ADMIN_NOTIFY_EMAIL,
@@ -651,53 +626,8 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/api/auth/login') {
-      const body = await readBody(req);
-      const { email, password } = body;
-      if (!email || !password) return sendJson(res, 400, { error: 'Missing credentials' });
-
-      const customer = await prisma.user.findFirst({
-        where: { email: { equals: email, mode: 'insensitive' }, password, role: 'customer' },
-      });
-      if (customer) {
-        return sendJson(res, 200, {
-          role: 'customer',
-          user: { id: customer.id, name: customer.name, email: customer.email },
-        });
-      }
-
-      const vendor = await prisma.vendorApplication.findFirst({
-        where: { email: { equals: email, mode: 'insensitive' }, password },
-      });
-      if (vendor) {
-        return sendJson(res, 200, {
-          role: 'vendor',
-          user: { id: vendor.id, name: vendor.businessName, email: vendor.email, status: vendor.status },
-        });
-      }
-
-      const existingUser = await prisma.user.findFirst({
-        where: { email: { equals: email, mode: 'insensitive' } },
-      });
-      if (existingUser) {
-        if (existingUser.role === 'admin') {
-          return sendJson(res, 401, { error: 'Use admin login for this account' });
-        }
-        return sendJson(res, 401, { error: 'Invalid credentials' });
-      }
-
-      // Customer quick-start: if no account exists, create one on first login.
-      const customerName = String(email).split('@')[0] || 'Customer';
-      const createdCustomer = await prisma.user.create({
-        data: {
-          name: customerName,
-          email,
-          password,
-          role: 'customer',
-        },
-      });
-      return sendJson(res, 200, {
-        role: 'customer',
-        user: { id: createdCustomer.id, name: createdCustomer.name, email: createdCustomer.email },
+      return sendJson(res, 400, {
+        error: 'Email/password login is disabled. Please use Google login for customers and vendors.',
       });
     }
 
@@ -964,7 +894,9 @@ createServer(async (req, res) => {
         where: { email: { equals: vendorEmail, mode: 'insensitive' } },
       });
       if (!vendor) return sendJson(res, 404, { error: 'Vendor profile not found' });
-      if (vendor.status === 'rejected') return sendJson(res, 403, { error: 'Vendor account is rejected' });
+      if (vendor.status !== 'approved') {
+        return sendJson(res, 403, { error: `Vendor account is ${vendor.status}. Admin approval required.` });
+      }
       const { title, serviceName } = body;
       if (!title || !serviceName) return sendJson(res, 400, { error: 'Missing required fields' });
       const post = await prisma.vendorPost.create({
@@ -1040,9 +972,9 @@ createServer(async (req, res) => {
           where: { email: { equals: body.vendorEmail, mode: 'insensitive' } },
         });
         if (!vendor) return sendJson(res, 404, { error: 'Vendor account not found. Please finish vendor signup first.' });
-        if (vendor.status === 'rejected') {
+        if (vendor.status !== 'approved') {
           return sendJson(res, 403, {
-            error: 'Dein Vendor-Konto ist abgelehnt. Bitte kontaktiere den Admin.',
+            error: `Dein Vendor-Konto ist ${vendor.status}. Bitte warte auf Admin-Freigabe.`,
           });
         }
       }

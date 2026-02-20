@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useLanguage } from '../context/LanguageContext';
-import { login, loginCustomerWithGoogle, loginVendorWithGoogle } from '../utils/api';
+import { loginCustomerWithGoogle, loginVendorWithGoogle } from '../utils/api';
 import { getCurrentUser, setCurrentUser } from '../utils/auth';
 
 type GoogleCredentialResponse = { credential?: string };
@@ -26,9 +26,6 @@ export default function Login() {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [googleLoading, setGoogleLoading] = useState<'customer' | 'vendor' | ''>('');
   const [error, setError] = useState('');
 
@@ -51,25 +48,6 @@ export default function Login() {
       document.head.removeChild(script);
     };
   }, []);
-
-  const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setIsSubmitting(true);
-    try {
-      const data = await login({ email, password });
-      setCurrentUser(data);
-      if (data.role === 'vendor') {
-        navigate('/vendor-portfolio');
-      } else {
-        navigate('/customer-portfolio');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login fehlgeschlagen.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
 
   const signInWithGoogle = async (role: 'customer' | 'vendor') => {
     if (!GOOGLE_CLIENT_ID) {
@@ -154,42 +132,12 @@ export default function Login() {
               <div className="w-full border-t border-gray-200" />
             </div>
             <div className="relative flex justify-center">
-              <span className="bg-white px-3 text-xs text-gray-500">oder mit E-Mail</span>
+              <span className="bg-white px-3 text-xs text-gray-500">Google-only Login aktiviert</span>
             </div>
           </div>
-
-          <form className="space-y-4" onSubmit={onSubmit}>
-            <div>
-              <label className="block text-sm text-gray-700 mb-1">{t('auth.email')}</label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-700 mb-1">{t('auth.password')}</label>
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-              />
-            </div>
-            {error && (
-              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
-            )}
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full rounded-lg bg-purple-600 text-white py-2.5 font-medium hover:bg-purple-700 transition-colors"
-            >
-              {isSubmitting ? 'Bitte warten...' : t('auth.login.button')}
-            </button>
-          </form>
+          {error && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
+          )}
 
           <p className="text-sm text-gray-600 mt-5">
             {t('auth.login.noAccount')}{' '}

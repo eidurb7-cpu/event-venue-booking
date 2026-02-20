@@ -4,6 +4,8 @@ import { getCurrentUser } from '../utils/auth';
 
 export default function CustomerPortfolio() {
   const [customerEmail, setCustomerEmail] = useState('');
+  const [customerName, setCustomerName] = useState('');
+  const [isCustomerSession, setIsCustomerSession] = useState(false);
   const [requests, setRequests] = useState<ServiceRequest[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -13,6 +15,8 @@ export default function CustomerPortfolio() {
     if (!current) return;
     if (current.role !== 'customer') return;
     if (!current.user.email) return;
+    setIsCustomerSession(true);
+    setCustomerName(current.user.name || '');
     setCustomerEmail(current.user.email);
     loadRequests(current.user.email);
   }, []);
@@ -71,6 +75,11 @@ export default function CustomerPortfolio() {
         <div className="bg-white rounded-xl shadow-md p-8 mb-6">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Customer Portfolio</h1>
           <p className="text-gray-600 mb-5">Anfragen verwalten und Vendor-Angebote akzeptieren oder ignorieren.</p>
+          {isCustomerSession && (
+            <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
+              Eingeloggt als {customerName || customerEmail} ({customerEmail})
+            </div>
+          )}
           <input
             type="email"
             placeholder="Deine E-Mail fuer den Portfolio-Zugriff"
@@ -80,7 +89,8 @@ export default function CustomerPortfolio() {
               setCustomerEmail(value);
               if (!value.trim()) setRequests([]);
             }}
-            className="w-full md:w-[420px] rounded-lg border border-gray-300 px-3 py-2.5"
+            disabled={isCustomerSession}
+            className="w-full md:w-[420px] rounded-lg border border-gray-300 px-3 py-2.5 disabled:bg-gray-100 disabled:text-gray-500"
           />
           <button
             type="button"

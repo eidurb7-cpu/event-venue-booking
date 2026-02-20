@@ -3,7 +3,6 @@ import { Link, useNavigate } from 'react-router';
 import {
   getVendorDocumentUploadUrl,
   loginCustomerWithGoogle,
-  signupCustomer,
   signupVendor,
   verifyVendorGoogleToken,
 } from '../utils/api';
@@ -43,12 +42,6 @@ export default function Signup() {
   const [googleLinked, setGoogleLinked] = useState(false);
   const [customerGoogleLoading, setCustomerGoogleLoading] = useState(false);
 
-  const [customerForm, setCustomerForm] = useState({
-    name: '',
-    email: '',
-    password: '',
-  });
-
   const [vendorForm, setVendorForm] = useState({
     businessName: '',
     contactName: '',
@@ -77,21 +70,6 @@ export default function Signup() {
       document.head.removeChild(script);
     };
   }, []);
-
-  const onCustomerSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setIsSubmitting(true);
-    try {
-      await signupCustomer(customerForm);
-      setSubmitted(true);
-      setCustomerForm({ name: '', email: '', password: '' });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Fehler beim Registrieren.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
 
   const onGoogleCustomerSignIn = async () => {
     if (!GOOGLE_CLIENT_ID) {
@@ -217,11 +195,15 @@ export default function Signup() {
   const onVendorSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    if (!vendorForm.googleSub) {
+      setError('Bitte zuerst Google-Konto als Vendor verknuepfen.');
+      return;
+    }
     setIsSubmitting(true);
     try {
       await signupVendor({
         ...vendorForm,
-        password: vendorForm.googleSub ? undefined : vendorForm.password,
+        password: undefined,
       });
       setSubmitted(true);
       setGoogleLinked(false);
@@ -285,9 +267,9 @@ export default function Signup() {
           </div>
 
           {role === 'customer' && (
-            <form className="space-y-4" onSubmit={onCustomerSubmit}>
+            <div className="space-y-4">
               <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
-                Kunden brauchen keine Bewerbung. Du kannst dich direkt auf der Login-Seite anmelden.
+                Kunden nutzen nur Google Login. Kein Passwort oder E-Mail-Registrierung erforderlich.
               </div>
               <button
                 type="button"
@@ -304,44 +286,7 @@ export default function Signup() {
               >
                 Zur Login-Seite
               </button>
-              <div>
-                <label className="block text-sm text-gray-700 mb-1">Name</label>
-                <input
-                  type="text"
-                  required
-                  value={customerForm.name}
-                  onChange={(e) => setCustomerForm((p) => ({ ...p, name: e.target.value }))}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-700 mb-1">E-Mail</label>
-                <input
-                  type="email"
-                  required
-                  value={customerForm.email}
-                  onChange={(e) => setCustomerForm((p) => ({ ...p, email: e.target.value }))}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-700 mb-1">Passwort</label>
-                <input
-                  type="password"
-                  required
-                  value={customerForm.password}
-                  onChange={(e) => setCustomerForm((p) => ({ ...p, password: e.target.value }))}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full rounded-lg bg-purple-600 text-white py-2.5 font-medium hover:bg-purple-700"
-              >
-                {isSubmitting ? 'Wird erstellt...' : 'Konto erstellen'}
-              </button>
-            </form>
+            </div>
           )}
 
           {role === 'vendor' && (
@@ -397,17 +342,24 @@ export default function Signup() {
                   </div>
                   <div>
                     <label className="block text-sm text-gray-700 mb-1">
-                      Passwort {vendorForm.googleSub ? '(optional mit Google)' : ''}
+                      Passwort
                     </label>
                     <input
                       type="password"
-                      required={!vendorForm.googleSub}
-                      value={vendorForm.password}
-                      onChange={(e) => setVendorForm((p) => ({ ...p, password: e.target.value }))}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
+                      disabled
+                      value=""
+                      placeholder="Deaktiviert: Vendor Login ist Google-only"
+                      onChange={() => {}}
+                      className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-gray-500"
                     />
                   </div>
                 </div>
+
+                {!vendorForm.googleSub && (
+                  <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-800">
+                    Bitte zuerst "Mit Google als Vendor anmelden", dann Bewerbung absenden.
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-sm text-gray-700 mb-2">Dienstleistungen</label>
@@ -507,8 +459,8 @@ export default function Signup() {
 
                 <button
                   type="submit"
-                  disabled={isSubmitting || isUploadingDoc}
-                  className="w-full rounded-lg bg-purple-600 text-white py-2.5 font-medium hover:bg-purple-700 transition-colors"
+                  disabled={isSubmitting || isUploadingDoc || !vendorForm.googleSub}
+                  className="w-full rounded-lg bg-purple-600 text-white py-2.5 font-medium hover:bg-purple-700 transition-colors disabled:opacity-60"
                 >
                   {isSubmitting ? 'Wird gesendet...' : 'Vendor Anfrage senden'}
                 </button>
@@ -524,7 +476,7 @@ export default function Signup() {
 
           {submitted && (
             <div className="mt-5 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-              Konto erfolgreich erstellt. Du kannst jetzt direkt einloggen.
+              Anfrage gesendet. Dein Vendor-Konto wartet jetzt auf Admin-Freigabe.
             </div>
           )}
 

@@ -8,6 +8,7 @@ export default function RequestPage() {
   const fallbackCategories = useMemo(() => Array.from(new Set(services.map((s) => s.category))), []);
   const [categories, setCategories] = useState<string[]>(fallbackCategories);
   const [submittedId, setSubmittedId] = useState('');
+  const [isCustomerSession, setIsCustomerSession] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -36,6 +37,7 @@ export default function RequestPage() {
   useEffect(() => {
     const current = getCurrentUser();
     if (!current || current.role !== 'customer') return;
+    setIsCustomerSession(true);
     setForm((prev) => ({
       ...prev,
       customerName: prev.customerName || current.user.name || '',
@@ -104,7 +106,8 @@ export default function RequestPage() {
                   required
                   value={form.customerName}
                   onChange={(e) => setForm((p) => ({ ...p, customerName: e.target.value }))}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                  disabled={isCustomerSession}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:ring-2 focus:ring-purple-600 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500"
                 />
               </div>
               <div>
@@ -114,7 +117,8 @@ export default function RequestPage() {
                   required
                   value={form.customerEmail}
                   onChange={(e) => setForm((p) => ({ ...p, customerEmail: e.target.value }))}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                  disabled={isCustomerSession}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:ring-2 focus:ring-purple-600 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500"
                 />
               </div>
             </div>
