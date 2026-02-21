@@ -39,6 +39,7 @@ export default function AdminDashboard() {
   >([]);
   const [openApplicationIds, setOpenApplicationIds] = useState<Record<string, boolean>>({});
   const [openRequestIds, setOpenRequestIds] = useState<Record<string, boolean>>({});
+  const [selectedApplication, setSelectedApplication] = useState<VendorApplication | null>(null);
 
   const statusChartData = [
     { name: 'Open', value: requests.filter((r) => r.status === 'open').length },
@@ -201,6 +202,14 @@ export default function AdminDashboard() {
 
   const toggleApplication = (id: string) => {
     setOpenApplicationIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const openApplicationDetails = (app: VendorApplication) => {
+    setSelectedApplication(app);
+  };
+
+  const closeApplicationDetails = () => {
+    setSelectedApplication(null);
   };
 
   const toggleRequest = (id: string) => {
@@ -410,6 +419,13 @@ export default function AdminDashboard() {
                     >
                       {openApplicationIds[app.id] ? 'Schliessen' : 'Oeffnen'}
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => openApplicationDetails(app)}
+                      className="rounded-lg border border-purple-300 px-2 py-1 text-xs text-purple-700 hover:bg-purple-50"
+                    >
+                      Vollansicht
+                    </button>
                     <span
                       className={`text-xs px-2 py-1 rounded-full ${
                         app.status === 'approved'
@@ -594,6 +610,106 @@ export default function AdminDashboard() {
             ))}
           </div>
         </div>
+
+        {selectedApplication && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
+            <div className="w-full max-w-3xl max-h-[88vh] overflow-y-auto rounded-xl bg-white shadow-2xl">
+              <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-gray-200 bg-white px-5 py-4">
+                <div>
+                  <h3 className="text-xl font-semibold text-gray-900">{selectedApplication.businessName}</h3>
+                  <p className="text-sm text-gray-600">Vendor-Bewerbung: {selectedApplication.id}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeApplicationDetails}
+                  className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
+                >
+                  Schliessen
+                </button>
+              </div>
+
+              <div className="space-y-4 px-5 py-4 text-sm text-gray-700">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <p><strong>Status:</strong> {selectedApplication.status}</p>
+                  <p><strong>Kontaktperson:</strong> {selectedApplication.contactName}</p>
+                  <p><strong>E-Mail:</strong> {selectedApplication.email}</p>
+                  <p><strong>Stadt:</strong> {selectedApplication.city || '-'}</p>
+                  <p><strong>Erstellt:</strong> {new Date(selectedApplication.createdAt).toLocaleString()}</p>
+                  <p><strong>Geprueft:</strong> {selectedApplication.reviewedAt ? new Date(selectedApplication.reviewedAt).toLocaleString() : '-'}</p>
+                </div>
+
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-2">
+                  <p><strong>Website:</strong> {selectedApplication.websiteUrl || '-'}</p>
+                  <p><strong>Portfolio:</strong> {selectedApplication.portfolioUrl || '-'}</p>
+                  <p><strong>Stripe Connect:</strong> {selectedApplication.stripeAccountId || '-'}</p>
+                  <p><strong>Dokumentname:</strong> {selectedApplication.documentName || '-'}</p>
+                  {selectedApplication.documentUrl ? (
+                    <p>
+                      <strong>Dokument:</strong>{' '}
+                      <a
+                        className="text-purple-700 underline break-all"
+                        href={selectedApplication.documentUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Datei oeffnen
+                      </a>
+                    </p>
+                  ) : (
+                    <p><strong>Dokument:</strong> -</p>
+                  )}
+                </div>
+
+                <div className="rounded-lg border border-gray-200 p-3">
+                  <p className="font-medium text-gray-900 mb-1">Business Intro</p>
+                  <p className="whitespace-pre-wrap break-words text-gray-700">
+                    {selectedApplication.businessIntro || '-'}
+                  </p>
+                </div>
+
+                <div className="rounded-lg border border-gray-200 p-3">
+                  <p className="font-medium text-gray-900 mb-1">Review Note</p>
+                  <p className="whitespace-pre-wrap break-words text-gray-700">
+                    {selectedApplication.reviewNote || '-'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="sticky bottom-0 z-10 flex items-center gap-2 border-t border-gray-200 bg-white px-5 py-4">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await updateApplication(selectedApplication.id, 'approved');
+                    closeApplicationDetails();
+                  }}
+                  className="rounded-lg bg-green-600 text-white px-3 py-2 text-sm hover:bg-green-700"
+                >
+                  Freigeben
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await updateApplication(selectedApplication.id, 'rejected');
+                    closeApplicationDetails();
+                  }}
+                  className="rounded-lg bg-red-100 text-red-700 px-3 py-2 text-sm hover:bg-red-200"
+                >
+                  Ablehnen
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await updateApplication(selectedApplication.id, 'pending_review');
+                    closeApplicationDetails();
+                  }}
+                  className="rounded-lg bg-gray-200 text-gray-800 px-3 py-2 text-sm hover:bg-gray-300"
+                >
+                  Zurueck auf Pending
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
