@@ -15,6 +15,7 @@ import Invoices from './pages/Invoices';
 import InvoiceDetail from './pages/InvoiceDetail';
 import CookieSettings from './pages/CookieSettings';
 import BookingThreadPage from './pages/BookingThread';
+import WhyFeatureDetail from './pages/WhyFeatureDetail';
 import Impressum from './pages/Impressum';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import Terms from './pages/Terms';
@@ -42,6 +43,7 @@ export const router = createBrowserRouter([
       { path: 'invoices', Component: Invoices },
       { path: 'invoice/:invoiceId', Component: InvoiceDetail },
       { path: 'cookies', Component: CookieSettings },
+      { path: 'why/:topic', Component: WhyFeatureDetail },
       { path: 'impressum', Component: Impressum },
       { path: 'privacy', Component: PrivacyPolicy },
       { path: 'terms', Component: Terms },

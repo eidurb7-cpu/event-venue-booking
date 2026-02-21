@@ -98,21 +98,33 @@ export default function Home() {
         <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 text-center">{t('home.why.title')}</h2>
           <div className="grid md:grid-cols-3 gap-5 mt-10">
-            <div className="rounded-2xl bg-white border border-slate-200 p-6">
+            <Link to="/why/curated-vendors" className="group rounded-2xl bg-white border border-slate-200 p-6 transition-all duration-300 hover:-translate-y-1 hover:border-purple-300 hover:shadow-lg">
               <Sparkles className="size-7 text-purple-600 mb-3" />
               <h3 className="text-lg font-semibold text-slate-900">{t('home.why.curated.title')}</h3>
               <p className="text-sm text-slate-600 mt-2">{t('home.why.curated.desc')}</p>
-            </div>
-            <div className="rounded-2xl bg-white border border-slate-200 p-6">
+              <p className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-purple-700 group-hover:text-purple-800">
+                {t('home.why.learnMore')}
+                <ArrowRight className="size-4 transition-transform duration-300 group-hover:translate-x-0.5" />
+              </p>
+            </Link>
+            <Link to="/why/secure-payments" className="group rounded-2xl bg-white border border-slate-200 p-6 transition-all duration-300 hover:-translate-y-1 hover:border-purple-300 hover:shadow-lg">
               <Shield className="size-7 text-purple-600 mb-3" />
               <h3 className="text-lg font-semibold text-slate-900">{t('home.why.secure.title')}</h3>
               <p className="text-sm text-slate-600 mt-2">{t('home.why.secure.desc')}</p>
-            </div>
-            <div className="rounded-2xl bg-white border border-slate-200 p-6">
+              <p className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-purple-700 group-hover:text-purple-800">
+                {t('home.why.learnMore')}
+                <ArrowRight className="size-4 transition-transform duration-300 group-hover:translate-x-0.5" />
+              </p>
+            </Link>
+            <Link to="/why/structured-booking" className="group rounded-2xl bg-white border border-slate-200 p-6 transition-all duration-300 hover:-translate-y-1 hover:border-purple-300 hover:shadow-lg">
               <Calendar className="size-7 text-purple-600 mb-3" />
               <h3 className="text-lg font-semibold text-slate-900">{t('home.why.booking.title')}</h3>
               <p className="text-sm text-slate-600 mt-2">{t('home.why.booking.desc')}</p>
-            </div>
+              <p className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-purple-700 group-hover:text-purple-800">
+                {t('home.why.learnMore')}
+                <ArrowRight className="size-4 transition-transform duration-300 group-hover:translate-x-0.5" />
+              </p>
+            </Link>
           </div>
         </div>
       </section>
