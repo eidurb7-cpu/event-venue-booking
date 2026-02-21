@@ -109,6 +109,12 @@ enum InvoiceStatus {
   void
 }
 
+enum PayoutStatus {
+  pending
+  paid
+  failed
+}
+
 enum AnalyticsEventType {
   profile_view
   service_view
@@ -131,6 +137,7 @@ model User {
   reviews          Review[]
   analyticsEvents  AnalyticsEvent[]
   consentLogs      ConsentLog[]
+  agreements       Agreement[]
 }
 
 model VendorApplication {
@@ -279,6 +286,9 @@ model VendorProfile {
   analyticsEvents     AnalyticsEvent[]
   dailyStats          VendorDailyStat[]
   offerEvents         OfferEvent[]
+  compliance          VendorCompliance?
+  agreements          Agreement[]
+  payouts             Payout[]
 }
 
 model MarketplaceService {
@@ -338,6 +348,8 @@ model Booking {
   reviews         Review[]
   analyticsEvents AnalyticsEvent[]
   offerEvents     OfferEvent[]
+  agreement       Agreement?
+  payouts         Payout[]
 
   @@index([customerId])
   @@index([status])
@@ -480,4 +492,67 @@ model ConsentLog {
   @@index([userId, createdAt])
   @@index([sessionId, createdAt])
   @@index([createdAt])
+}
+
+model VendorCompliance {
+  id                       String        @id @default(cuid())
+  vendorId                 String        @unique
+  vendor                   VendorProfile @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  contractAccepted         Boolean       @default(false)
+  contractAcceptedAt       DateTime?
+  contractVersionAccepted  String?
+  contractAcceptedByUserId String?
+  contractAcceptedIP       String?
+  trainingCompleted        Boolean       @default(false)
+  trainingCompletedAt      DateTime?
+  connectOnboardingStatus  String        @default("NOT_STARTED")
+  payoutsEnabled           Boolean       @default(false)
+  chargesEnabled           Boolean       @default(false)
+  createdAt                DateTime      @default(now())
+  updatedAt                DateTime      @updatedAt
+}
+
+model Agreement {
+  id                          String       @id @default(cuid())
+  bookingId                   String       @unique
+  booking                     Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  customerId                  String
+  customer                    User         @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  vendorId                    String?
+  vendor                      VendorProfile? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  agreementVersion            String?
+  netAmount                   Int?
+  vatAmount                   Int?
+  grossAmount                 Int?
+  platformFee                 Int?
+  vendorNetAmount             Int?
+  customerAccepted            Boolean      @default(false)
+  customerAcceptedAt          DateTime?
+  customerAcceptedIP          String?
+  vendorAccepted              Boolean      @default(false)
+  vendorAcceptedAt            DateTime?
+  createdAt                   DateTime     @default(now())
+  updatedAt                   DateTime     @updatedAt
+
+  @@index([customerId])
+  @@index([vendorId])
+}
+
+model Payout {
+  id               String       @id @default(cuid())
+  vendorId         String
+  vendor           VendorProfile @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  bookingId        String
+  booking          Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  stripeTransferId String?
+  grossAmount      Int
+  platformFee      Int
+  vendorNetAmount  Int
+  status           PayoutStatus @default(pending)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@unique([bookingId, vendorId])
+  @@index([vendorId])
+  @@index([status])
 }

@@ -349,6 +349,15 @@ function normalizeVendorEmail(email) {
   return String(email || '').trim().toLowerCase();
 }
 
+function supportsPrismaModel(modelName) {
+  return Boolean(prisma?.[modelName]);
+}
+
+function isPrismaTableMissingError(error) {
+  const code = String(error?.code || '');
+  return code === 'P2021' || code === 'P2022';
+}
+
 function defaultVendorCompliance() {
   return {
     contractAccepted: false,
@@ -383,10 +392,40 @@ async function writeVendorComplianceStore(store) {
 async function getVendorCompliance(vendorEmail) {
   const store = await readVendorComplianceStore();
   const key = normalizeVendorEmail(vendorEmail);
-  return {
+  const fallback = {
     ...defaultVendorCompliance(),
     ...(store.vendors[key] || {}),
   };
+  if (!supportsPrismaModel('vendorCompliance')) return fallback;
+  try {
+    const app = await getVendorApplicationByEmail(vendorEmail);
+    if (!app) return fallback;
+    const profile = await prisma.vendorProfile.findUnique({
+      where: { vendorApplicationId: app.id },
+    });
+    if (!profile) return fallback;
+    const row = await prisma.vendorCompliance.findUnique({
+      where: { vendorId: profile.id },
+    });
+    if (!row) return fallback;
+    return {
+      ...fallback,
+      contractAccepted: Boolean(row.contractAccepted),
+      contractAcceptedAt: row.contractAcceptedAt ? new Date(row.contractAcceptedAt).toISOString() : null,
+      contractVersion: row.contractVersionAccepted || null,
+      contractAcceptedByUserId: row.contractAcceptedByUserId || null,
+      contractAcceptedIP: row.contractAcceptedIP || null,
+      trainingCompleted: Boolean(row.trainingCompleted),
+      trainingCompletedAt: row.trainingCompletedAt ? new Date(row.trainingCompletedAt).toISOString() : null,
+      connectOnboardingStatus: row.connectOnboardingStatus || 'NOT_STARTED',
+      payoutsEnabled: Boolean(row.payoutsEnabled),
+      chargesEnabled: Boolean(row.chargesEnabled),
+      updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : fallback.updatedAt,
+    };
+  } catch (error) {
+    if (isPrismaTableMissingError(error)) return fallback;
+    throw error;
+  }
 }
 
 async function updateVendorCompliance(vendorEmail, updater) {
@@ -403,6 +442,46 @@ async function updateVendorCompliance(vendorEmail, updater) {
   };
   store.vendors[key] = next;
   await writeVendorComplianceStore(store);
+  if (supportsPrismaModel('vendorCompliance')) {
+    try {
+      const app = await getVendorApplicationByEmail(vendorEmail);
+      if (app) {
+        await prisma.$transaction(async (tx) => {
+          const { vendorProfile } = await ensureVendorIdentityFromApplication(tx, app);
+          await tx.vendorCompliance.upsert({
+            where: { vendorId: vendorProfile.id },
+            update: {
+              contractAccepted: Boolean(next.contractAccepted),
+              contractAcceptedAt: next.contractAcceptedAt ? new Date(next.contractAcceptedAt) : null,
+              contractVersionAccepted: next.contractVersion || null,
+              contractAcceptedByUserId: next.contractAcceptedByUserId || null,
+              contractAcceptedIP: next.contractAcceptedIP || null,
+              trainingCompleted: Boolean(next.trainingCompleted),
+              trainingCompletedAt: next.trainingCompletedAt ? new Date(next.trainingCompletedAt) : null,
+              connectOnboardingStatus: String(next.connectOnboardingStatus || 'NOT_STARTED'),
+              payoutsEnabled: Boolean(next.payoutsEnabled),
+              chargesEnabled: Boolean(next.chargesEnabled),
+            },
+            create: {
+              vendorId: vendorProfile.id,
+              contractAccepted: Boolean(next.contractAccepted),
+              contractAcceptedAt: next.contractAcceptedAt ? new Date(next.contractAcceptedAt) : null,
+              contractVersionAccepted: next.contractVersion || null,
+              contractAcceptedByUserId: next.contractAcceptedByUserId || null,
+              contractAcceptedIP: next.contractAcceptedIP || null,
+              trainingCompleted: Boolean(next.trainingCompleted),
+              trainingCompletedAt: next.trainingCompletedAt ? new Date(next.trainingCompletedAt) : null,
+              connectOnboardingStatus: String(next.connectOnboardingStatus || 'NOT_STARTED'),
+              payoutsEnabled: Boolean(next.payoutsEnabled),
+              chargesEnabled: Boolean(next.chargesEnabled),
+            },
+          });
+        });
+      }
+    } catch (error) {
+      if (!isPrismaTableMissingError(error)) throw error;
+    }
+  }
   return next;
 }
 
@@ -438,44 +517,58 @@ async function assertVendorCanPublishOrRespond(vendor) {
 }
 
 async function getVendorPayoutReadiness(vendor) {
+  const persistReadiness = async (payload) => {
+    if (!vendor?.email) return payload;
+    try {
+      await updateVendorCompliance(vendor.email, (current) => ({
+        ...current,
+        connectOnboardingStatus: payload.connectOnboardingStatus,
+        payoutsEnabled: Boolean(payload.payoutsEnabled),
+        chargesEnabled: Boolean(payload.chargesEnabled),
+      }));
+    } catch {
+      // Ignore persistence errors to keep request flow resilient.
+    }
+    return payload;
+  };
   if (!vendor?.stripeAccountId) {
-    return {
+    return persistReadiness({
       ready: false,
       reason: 'Stripe Connect account not linked',
       connectOnboardingStatus: 'NOT_STARTED',
       payoutsEnabled: false,
       chargesEnabled: false,
-    };
+    });
   }
   if (!stripe) {
-    return {
+    return persistReadiness({
       ready: true,
       reason: null,
       connectOnboardingStatus: 'COMPLETED',
       payoutsEnabled: true,
       chargesEnabled: true,
-    };
+    });
   }
   try {
     const account = await stripe.accounts.retrieve(vendor.stripeAccountId);
     const payoutsEnabled = Boolean(account.payouts_enabled);
     const chargesEnabled = Boolean(account.charges_enabled);
     const ready = payoutsEnabled && chargesEnabled;
-    return {
+    return persistReadiness({
       ready,
       reason: ready ? null : 'Stripe onboarding not fully completed (charges/payouts disabled)',
       connectOnboardingStatus: ready ? 'COMPLETED' : 'IN_PROGRESS',
       payoutsEnabled,
       chargesEnabled,
-    };
+    });
   } catch {
-    return {
+    return persistReadiness({
       ready: false,
       reason: 'Stripe account lookup failed',
       connectOnboardingStatus: 'IN_PROGRESS',
       payoutsEnabled: false,
       chargesEnabled: false,
-    };
+    });
   }
 }
 
@@ -526,10 +619,33 @@ async function writeServiceAgreementStore(store) {
 
 async function getServiceAgreementRecord(bookingId) {
   const store = await readServiceAgreementStore();
-  return {
+  const fallback = {
     ...defaultServiceAgreement(),
     ...(store.bookings[String(bookingId)] || {}),
   };
+  if (!supportsPrismaModel('agreement')) return fallback;
+  try {
+    const row = await prisma.agreement.findUnique({
+      where: { bookingId: String(bookingId) },
+    });
+    if (!row) return fallback;
+    return {
+      ...fallback,
+      agreementVersion: row.agreementVersion || null,
+      agreementAcceptedByCustomerAt: row.customerAcceptedAt ? new Date(row.customerAcceptedAt).toISOString() : null,
+      agreementAcceptedByCustomerIp: row.customerAcceptedIP || null,
+      agreementAcceptedByVendorAt: row.vendorAcceptedAt ? new Date(row.vendorAcceptedAt).toISOString() : null,
+      updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : fallback.updatedAt,
+      netAmount: row.netAmount ?? null,
+      vatAmount: row.vatAmount ?? null,
+      grossAmount: row.grossAmount ?? null,
+      platformFee: row.platformFee ?? null,
+      vendorNetAmount: row.vendorNetAmount ?? null,
+    };
+  } catch (error) {
+    if (isPrismaTableMissingError(error)) return fallback;
+    throw error;
+  }
 }
 
 async function updateServiceAgreementRecord(bookingId, updater) {
@@ -546,6 +662,52 @@ async function updateServiceAgreementRecord(bookingId, updater) {
   };
   store.bookings[key] = next;
   await writeServiceAgreementStore(store);
+  if (supportsPrismaModel('agreement')) {
+    try {
+      const booking = await prisma.booking.findUnique({
+        where: { id: String(bookingId) },
+        include: { items: true },
+      });
+      if (booking) {
+        const primaryVendorId = booking.items[0]?.vendorId || null;
+        await prisma.agreement.upsert({
+          where: { bookingId: booking.id },
+          update: {
+            agreementVersion: next.agreementVersion || null,
+            customerAccepted: Boolean(next.agreementAcceptedByCustomerAt),
+            customerAcceptedAt: next.agreementAcceptedByCustomerAt ? new Date(next.agreementAcceptedByCustomerAt) : null,
+            customerAcceptedIP: next.agreementAcceptedByCustomerIp || null,
+            vendorAccepted: Boolean(next.agreementAcceptedByVendorAt),
+            vendorAcceptedAt: next.agreementAcceptedByVendorAt ? new Date(next.agreementAcceptedByVendorAt) : null,
+            netAmount: Number.isFinite(Number(next.netAmount)) ? Math.round(Number(next.netAmount)) : null,
+            vatAmount: Number.isFinite(Number(next.vatAmount)) ? Math.round(Number(next.vatAmount)) : null,
+            grossAmount: Number.isFinite(Number(next.grossAmount)) ? Math.round(Number(next.grossAmount)) : null,
+            platformFee: Number.isFinite(Number(next.platformFee)) ? Math.round(Number(next.platformFee)) : null,
+            vendorNetAmount: Number.isFinite(Number(next.vendorNetAmount)) ? Math.round(Number(next.vendorNetAmount)) : null,
+            vendorId: primaryVendorId,
+          },
+          create: {
+            bookingId: booking.id,
+            customerId: booking.customerId,
+            vendorId: primaryVendorId,
+            agreementVersion: next.agreementVersion || null,
+            customerAccepted: Boolean(next.agreementAcceptedByCustomerAt),
+            customerAcceptedAt: next.agreementAcceptedByCustomerAt ? new Date(next.agreementAcceptedByCustomerAt) : null,
+            customerAcceptedIP: next.agreementAcceptedByCustomerIp || null,
+            vendorAccepted: Boolean(next.agreementAcceptedByVendorAt),
+            vendorAcceptedAt: next.agreementAcceptedByVendorAt ? new Date(next.agreementAcceptedByVendorAt) : null,
+            netAmount: Number.isFinite(Number(next.netAmount)) ? Math.round(Number(next.netAmount)) : null,
+            vatAmount: Number.isFinite(Number(next.vatAmount)) ? Math.round(Number(next.vatAmount)) : null,
+            grossAmount: Number.isFinite(Number(next.grossAmount)) ? Math.round(Number(next.grossAmount)) : null,
+            platformFee: Number.isFinite(Number(next.platformFee)) ? Math.round(Number(next.platformFee)) : null,
+            vendorNetAmount: Number.isFinite(Number(next.vendorNetAmount)) ? Math.round(Number(next.vendorNetAmount)) : null,
+          },
+        });
+      }
+    } catch (error) {
+      if (!isPrismaTableMissingError(error)) throw error;
+    }
+  }
   return next;
 }
 
@@ -560,6 +722,48 @@ async function getVendorApplicationFromBookingItem(tx, item) {
   return tx.vendorApplication.findFirst({
     where: { email: { equals: vendorProfile.user.email, mode: 'insensitive' } },
   });
+}
+
+async function createOrUpdatePayoutRecordsForBooking(bookingId) {
+  if (!supportsPrismaModel('payout')) return;
+  try {
+    const booking = await prisma.booking.findUnique({
+      where: { id: String(bookingId) },
+      include: { items: true },
+    });
+    if (!booking || booking.items.length === 0) return;
+
+    for (const item of booking.items) {
+      const grossAmount = Math.max(0, Number(item.finalPriceCents || item.latestPriceCents || 0));
+      if (grossAmount <= 0) continue;
+      const platformFee = Math.max(0, Math.round(grossAmount * (STRIPE_PLATFORM_COMMISSION_PERCENT / 100)));
+      const vendorNetAmount = Math.max(0, grossAmount - platformFee);
+      await prisma.payout.upsert({
+        where: {
+          bookingId_vendorId: {
+            bookingId: booking.id,
+            vendorId: item.vendorId,
+          },
+        },
+        update: {
+          grossAmount,
+          platformFee,
+          vendorNetAmount,
+          status: 'paid',
+        },
+        create: {
+          bookingId: booking.id,
+          vendorId: item.vendorId,
+          grossAmount,
+          platformFee,
+          vendorNetAmount,
+          status: 'paid',
+        },
+      });
+    }
+  } catch (error) {
+    if (!isPrismaTableMissingError(error)) throw error;
+  }
 }
 
 function canActorCounter(lastEventType, actorRole) {
@@ -941,6 +1145,7 @@ createServer(async (req, res) => {
             });
             await bookBookingAvailability(tx, booking);
           });
+          await createOrUpdatePayoutRecordsForBooking(bookingId);
         }
         return sendJson(res, 200, { received: true, event: event.type });
       }
@@ -1169,6 +1374,11 @@ createServer(async (req, res) => {
         return_url: STRIPE_CONNECT_RETURN_URL,
       });
 
+      await updateVendorCompliance(vendor.email, (current) => ({
+        ...current,
+        connectOnboardingStatus: 'IN_PROGRESS',
+      }));
+
       return sendJson(res, 200, {
         accountId,
         onboardingUrl: accountLink.url,
@@ -1186,6 +1396,12 @@ createServer(async (req, res) => {
       const vendor = await getVendorApplicationByEmail(vendorEmail);
       if (!vendor) return sendJson(res, 404, { error: 'Vendor profile not found' });
       if (!vendor.stripeAccountId) {
+        await updateVendorCompliance(vendor.email, (current) => ({
+          ...current,
+          connectOnboardingStatus: 'NOT_STARTED',
+          payoutsEnabled: false,
+          chargesEnabled: false,
+        }));
         return sendJson(res, 200, {
           connected: false,
           stripeAccountId: null,
@@ -1197,11 +1413,19 @@ createServer(async (req, res) => {
       }
 
       const account = await stripe.accounts.retrieve(vendor.stripeAccountId);
+      const payoutsEnabled = Boolean(account.payouts_enabled);
+      const chargesEnabled = Boolean(account.charges_enabled);
+      await updateVendorCompliance(vendor.email, (current) => ({
+        ...current,
+        connectOnboardingStatus: payoutsEnabled && chargesEnabled ? 'COMPLETED' : 'IN_PROGRESS',
+        payoutsEnabled,
+        chargesEnabled,
+      }));
       return sendJson(res, 200, {
         connected: Boolean(vendor.stripeAccountId),
         stripeAccountId: vendor.stripeAccountId,
-        chargesEnabled: Boolean(account.charges_enabled),
-        payoutsEnabled: Boolean(account.payouts_enabled),
+        chargesEnabled,
+        payoutsEnabled,
         detailsSubmitted: Boolean(account.details_submitted),
         pendingRequirements: account.requirements?.currently_due || [],
       });
@@ -2134,8 +2358,12 @@ createServer(async (req, res) => {
             notReadyVendors.push({ itemId: item.id, reason: 'Vendor account not linked' });
             continue;
           }
-          if (!vendorApp.stripeAccountId) {
-            notReadyVendors.push({ itemId: item.id, reason: `${vendorApp.businessName} has no Stripe Connect account` });
+          const payoutReadiness = await getVendorPayoutReadiness(vendorApp);
+          if (!payoutReadiness.ready) {
+            notReadyVendors.push({
+              itemId: item.id,
+              reason: `${vendorApp.businessName || vendorApp.email} is not payout-ready (${payoutReadiness.reason || 'Stripe setup incomplete'})`,
+            });
           }
         }
         if (notReadyVendors.length > 0) {

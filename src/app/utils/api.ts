@@ -78,6 +78,9 @@ export interface VendorCompliance {
   contractAcceptedIP?: string | null;
   trainingCompleted: boolean;
   trainingCompletedAt?: string | null;
+  connectOnboardingStatus?: string;
+  payoutsEnabled?: boolean;
+  chargesEnabled?: boolean;
   adminApproved: boolean;
   canBecomeActive: boolean;
   canPublish: boolean;
