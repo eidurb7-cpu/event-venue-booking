@@ -39,6 +39,8 @@ export default function VenueDetail() {
   const venueStateStorageKey = venue ? `venueState:${venue.id}` : '';
   const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
   const FRONTEND_BASE_URL = import.meta.env.VITE_FRONTEND_BASE_URL || window.location.origin;
+  const checkoutSectionId = 'venue-checkout-section';
+  const cartSectionId = 'venue-cart-section';
 
   useEffect(() => {
     if (!venueStateStorageKey) return;
@@ -161,7 +163,11 @@ export default function VenueDetail() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          cart,
+          cart: {
+            venue: cart.venue,
+            services: [],
+            currency: cart.currency,
+          },
           customer: bookingForm,
           successUrl: `${FRONTEND_BASE_URL}/checkout/success`,
           cancelUrl: `${FRONTEND_BASE_URL}/cart`,
@@ -221,6 +227,12 @@ export default function VenueDetail() {
     `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   const isBookedDate = (date: Date) => venue.bookedDates.includes(formatDate(date));
   const isAvailableDate = (date: Date) => formatDate(date) >= today && !isBookedDate(date);
+  const guideToCheckout = () => {
+    document.getElementById(checkoutSectionId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+  const guideToCart = () => {
+    document.getElementById(cartSectionId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 py-6 sm:py-12">
@@ -256,7 +268,7 @@ export default function VenueDetail() {
                   <span className="text-gray-500">{t('venue.perEvent')}</span>
                 </div>
                 <button type="button" onClick={() => setVenue(toCartVenue(venue))} className="rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-purple-700">
-                  {cart.venue?.id === venue.id ? 'Added ✓' : 'Add venue to cart'}
+                  {cart.venue?.id === venue.id ? 'Added ?' : 'Add venue to cart'}
                 </button>
               </div>
             </div>
@@ -280,7 +292,7 @@ export default function VenueDetail() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-md p-4 sm:p-8 sticky bottom-2 sm:bottom-4">
+        <div id={checkoutSectionId} className="bg-white rounded-xl shadow-md p-4 sm:p-8 sticky bottom-2 sm:bottom-4">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="flex-1 grid gap-6 lg:grid-cols-2 lg:items-end">
               <div>
@@ -319,10 +331,11 @@ export default function VenueDetail() {
                 <h3 className="font-semibold text-gray-900 mb-2">{t('venue.summary.title')}</h3>
                 <div className="text-2xl sm:text-3xl font-bold text-purple-600">EUR {calculateTotal().toLocaleString()}</div>
                 <p className="text-xs text-gray-500 mt-2">Global cart total: EUR {total.toLocaleString()}</p>
+                <p className="text-xs text-gray-500 mt-1">Pay now charges venue only. Services are paid after vendor acceptance.</p>
               </div>
             </div>
 
-            <div className="w-full lg:w-[360px] border border-gray-200 rounded-lg p-3 sm:p-4 bg-gray-50">
+            <div id={cartSectionId} className="w-full lg:w-[360px] border border-gray-200 rounded-lg p-3 sm:p-4 bg-gray-50">
               <h4 className="font-semibold text-gray-900 mb-2">{language === 'de' ? 'Warenkorb' : 'Cart'}</h4>
               {selectedServices.length === 0 ? (
                 <p className="text-sm text-gray-600">{language === 'de' ? 'Noch keine Services hinzugefuegt.' : 'No services added yet.'}</p>
@@ -376,6 +389,28 @@ export default function VenueDetail() {
               </button>
             </form>
           )}
+        </div>
+
+        <button
+          type="button"
+          aria-label="Go to checkout section"
+          onClick={guideToCheckout}
+          className="fixed z-40 right-4 sm:right-6 bottom-24 sm:bottom-28 h-12 w-12 rounded-full bg-purple-600 text-white shadow-lg hover:bg-purple-700 transition-all duration-300 flex items-center justify-center animate-pulse"
+        >
+          <ArrowRight className="size-5" />
+        </button>
+
+        <button
+          type="button"
+          aria-label="Go to cart section"
+          onClick={guideToCart}
+          className="fixed z-40 right-4 sm:right-6 bottom-40 sm:bottom-44 rounded-full bg-white border border-purple-300 text-purple-700 px-3 py-1.5 text-xs font-semibold shadow-md hover:bg-purple-50 transition-colors"
+        >
+          {language === 'de' ? 'Warenkorb' : 'Cart'}
+        </button>
+
+        <div className="fixed z-30 right-4 sm:right-6 bottom-16 sm:bottom-20 rounded-full bg-white/95 border border-purple-200 px-3 py-1 text-[11px] text-purple-700 shadow-sm">
+          {language === 'de' ? 'Zum Checkout' : 'Go to checkout'}
         </div>
       </div>
     </div>

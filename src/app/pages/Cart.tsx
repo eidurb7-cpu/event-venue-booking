@@ -3,7 +3,7 @@ import { ArrowRight, ShoppingCart, Trash2 } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { getCurrentUser } from '../utils/auth';
 import { createRequest } from '../utils/api';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 const FRONTEND_BASE_URL = import.meta.env.VITE_FRONTEND_BASE_URL || window.location.origin;
@@ -14,6 +14,7 @@ export default function Cart() {
   const [requestSending, setRequestSending] = useState(false);
   const [savingLater, setSavingLater] = useState(false);
   const [showCheckoutForm, setShowCheckoutForm] = useState(false);
+  const [payNowLoading, setPayNowLoading] = useState(false);
   const [bookingForm, setBookingForm] = useState({
     name: '',
     email: '',
@@ -22,6 +23,16 @@ export default function Cart() {
   });
   const currentUser = getCurrentUser();
   const isBookingBlockedForRole = currentUser?.role === 'vendor' || currentUser?.role === 'admin';
+
+  useEffect(() => {
+    if (currentUser?.role === 'customer') {
+      setBookingForm((prev) => ({
+        ...prev,
+        name: prev.name || currentUser.user.name || '',
+        email: prev.email || currentUser.user.email || '',
+      }));
+    }
+  }, [currentUser]);
 
   async function checkout() {
     if (isBookingBlockedForRole) {
@@ -37,25 +48,40 @@ export default function Cart() {
       return;
     }
 
-    const res = await fetch(`${API_BASE}/api/stripe/checkout`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        cart,
-        successUrl: `${FRONTEND_BASE_URL}/checkout/success`,
-        cancelUrl: `${FRONTEND_BASE_URL}/cart`,
-      }),
-    });
+    setPayNowLoading(true);
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE}/api/stripe/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cart: {
+            venue: cart.venue,
+            services: [],
+            currency: cart.currency,
+          },
+          customer: bookingForm,
+          successUrl: `${FRONTEND_BASE_URL}/checkout/success`,
+          cancelUrl: `${FRONTEND_BASE_URL}/cart`,
+        }),
+      });
+    } catch {
+      alert('Network error while starting checkout. Please check API/Stripe config.');
+      setPayNowLoading(false);
+      return;
+    }
 
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       alert(`Checkout error: ${body?.error || res.statusText}`);
+      setPayNowLoading(false);
       return;
     }
 
     const data = (await res.json()) as { url?: string | null };
     if (!data?.url) {
       alert('Checkout URL missing. Please try again.');
+      setPayNowLoading(false);
       return;
     }
     window.location.href = data.url;
@@ -270,15 +296,15 @@ export default function Cart() {
                   className="rounded-lg border border-gray-300 px-3 py-2.5"
                 />
               </div>
-              <button
-                type="submit"
-                disabled={total <= 0 || !cart.venue || isBookingBlockedForRole}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-              >
-                Pay now
-              </button>
-            </form>
-          )}
+                <button
+                  type="submit"
+                  disabled={total <= 0 || !cart.venue || isBookingBlockedForRole || payNowLoading}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                >
+                  {payNowLoading ? 'Starting checkout...' : 'Pay now'}
+                </button>
+              </form>
+            )}
         </div>
       </div>
     </div>
