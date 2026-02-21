@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router';
 import { Camera, Music, Palette, Search, SlidersHorizontal, Sparkles, Utensils } from 'lucide-react';
 import { services, type Service } from '../data/mockData';
 import { useLanguage } from '../context/LanguageContext';
-import { createRequest } from '../utils/api';
+import { PublicVendorPost, createRequest, getPublicVendorPosts } from '../utils/api';
 import { getCurrentUser } from '../utils/auth';
 import {
   Dialog,
@@ -63,6 +63,9 @@ export default function Services() {
   const [offerSubmitted, setOfferSubmitted] = useState(false);
   const [offerError, setOfferError] = useState('');
   const [offerSaving, setOfferSaving] = useState(false);
+  const [publicPosts, setPublicPosts] = useState<PublicVendorPost[]>([]);
+  const currentUser = getCurrentUser();
+  const isVendorViewOnly = currentUser?.role === 'vendor';
 
   const providers = useMemo<ProviderRow[]>(() => {
     return services.flatMap((service) =>
@@ -86,6 +89,12 @@ export default function Services() {
 
   const safeMaxPrice = Math.max(maxProviderPrice, 1);
   const [maxPrice, setMaxPrice] = useState(safeMaxPrice);
+
+  useEffect(() => {
+    getPublicVendorPosts()
+      .then((data) => setPublicPosts(data.posts))
+      .catch(() => setPublicPosts([]));
+  }, []);
 
   useEffect(() => {
     setMaxPrice((prev) => {
@@ -334,9 +343,10 @@ export default function Services() {
                   <button
                     type="button"
                     onClick={() => handleOpenOffer(row)}
-                    className="rounded-lg bg-purple-600 text-white py-2.5 text-sm font-medium hover:bg-purple-700 transition-colors"
+                    disabled={isVendorViewOnly}
+                    className="rounded-lg bg-purple-600 text-white py-2.5 text-sm font-medium hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
                   >
-                    {t('services.card.offerButton')}
+                    {isVendorViewOnly ? 'Nur Ansicht (Vendor)' : t('services.card.offerButton')}
                   </button>
                 </div>
               </div>
@@ -347,6 +357,31 @@ export default function Services() {
             {t('services.results.empty')}
           </div>
         )}
+
+        <section className="mt-12">
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Vendor Posts</h2>
+          <p className="text-sm text-gray-600 mb-4">Aktive Posts aus dem Vendor Dashboard (approved + aktiviert).</p>
+          {publicPosts.length === 0 ? (
+            <div className="rounded-xl bg-white border border-gray-200 p-6 text-sm text-gray-600">
+              Noch keine aktiven Vendor Posts.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {publicPosts.map((post) => (
+                <article key={post.id} className="rounded-xl border border-gray-200 bg-white p-4">
+                  <p className="text-xs uppercase font-semibold text-purple-600">{post.serviceName}</p>
+                  <h3 className="text-lg font-semibold text-gray-900 mt-1">{post.title}</h3>
+                  <p className="text-sm text-gray-600 mt-1">von {post.vendorName}</p>
+                  {post.city && <p className="text-sm text-gray-500 mt-1">{post.city}</p>}
+                  {post.description && <p className="text-sm text-gray-700 mt-3 line-clamp-3">{post.description}</p>}
+                  <p className="mt-3 text-sm font-semibold text-gray-900">
+                    {post.basePrice ? `EUR ${post.basePrice.toLocaleString()}` : 'Preis auf Anfrage'}
+                  </p>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
 
       <Dialog open={Boolean(activeProvider)} onOpenChange={(open) => !open && handleCloseProvider()}>

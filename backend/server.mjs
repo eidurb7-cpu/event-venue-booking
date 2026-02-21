@@ -2209,6 +2209,39 @@ createServer(async (req, res) => {
       return sendJson(res, 200, { posts });
     }
 
+    if (req.method === 'GET' && path === '/api/vendor/posts/public') {
+      const posts = await prisma.vendorPost.findMany({
+        where: {
+          isActive: true,
+          vendorApplication: {
+            status: 'approved',
+          },
+        },
+        include: {
+          vendorApplication: {
+            select: {
+              businessName: true,
+              city: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      return sendJson(res, 200, {
+        posts: posts.map((post) => ({
+          id: post.id,
+          title: post.title,
+          serviceName: post.serviceName,
+          description: post.description,
+          city: post.city || post.vendorApplication?.city || null,
+          basePrice: post.basePrice,
+          availability: post.availability,
+          createdAt: post.createdAt,
+          vendorName: post.vendorApplication?.businessName || 'Vendor',
+        })),
+      });
+    }
+
     if (req.method === 'POST' && path === '/api/vendor/posts') {
       const body = await readBody(req);
       const vendorEmail = (body.vendorEmail || '').trim();

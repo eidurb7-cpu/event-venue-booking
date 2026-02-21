@@ -6,6 +6,7 @@ import { ServiceCard } from '../components/ServiceCard';
 import { useLanguage } from '../context/LanguageContext';
 import { Calendar } from '../components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
+import { getCurrentUser } from '../utils/auth';
 
 export default function VenueDetail() {
   const { id } = useParams();
@@ -64,6 +65,16 @@ export default function VenueDetail() {
   };
 
   const handleProceedToBooking = () => {
+    const currentUser = getCurrentUser();
+    if (currentUser?.role === 'vendor') {
+      alert('Vendor accounts are view-only for booking pages. Please use a customer account to book.');
+      return;
+    }
+    if (currentUser?.role === 'admin') {
+      alert('Admin accounts cannot place bookings. Please use a customer account.');
+      return;
+    }
+
     if (!selectedDate) {
       alert(t('venue.alert.selectDate'));
       return;

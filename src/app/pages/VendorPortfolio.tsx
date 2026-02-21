@@ -33,6 +33,7 @@ export default function VendorPortfolio() {
   const [stripeLoading, setStripeLoading] = useState(false);
   const [stripeStatus, setStripeStatus] = useState<StripeConnectStatus | null>(null);
   const [error, setError] = useState('');
+  const [postSuccess, setPostSuccess] = useState('');
   const [priceByRequest, setPriceByRequest] = useState<Record<string, string>>({});
   const [messageByRequest, setMessageByRequest] = useState<Record<string, string>>({});
   const [inquirySubject, setInquirySubject] = useState('');
@@ -212,6 +213,7 @@ export default function VendorPortfolio() {
   const createPost = async () => {
     if (!vendorEmail.trim() || !postForm.title.trim() || !postForm.serviceName.trim()) return;
     setError('');
+    setPostSuccess('');
     try {
       await createVendorPost({
         vendorEmail: vendorEmail.trim(),
@@ -231,6 +233,7 @@ export default function VendorPortfolio() {
       });
       setPostForm({ title: '', serviceName: '', description: '', city: '', basePrice: '', availabilityJson: '{}' });
       await loadPosts(vendorEmail);
+      setPostSuccess('Post erstellt. Er erscheint auf der Services-Seite, wenn dein Vendor-Konto approved ist und der Post aktiv bleibt.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Fehler beim Erstellen des Posts.');
     }
@@ -480,6 +483,11 @@ export default function VendorPortfolio() {
           <button type="button" onClick={createPost} className="rounded-lg bg-purple-600 text-white px-4 py-2.5">
             Post erstellen
           </button>
+          {postSuccess && (
+            <div className="mt-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+              {postSuccess}
+            </div>
+          )}
           <div className="mt-4 space-y-3">
             {posts.length === 0 && <div className="text-sm text-gray-600">Noch keine Posts vorhanden.</div>}
             {posts.map((post) => (

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { Calendar, Check, Clock } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
+import { getCurrentUser } from '../utils/auth';
 
 export default function Booking() {
   const navigate = useNavigate();
@@ -28,6 +29,11 @@ export default function Booking() {
   });
 
   useEffect(() => {
+    const current = getCurrentUser();
+    if (current?.role === 'vendor' || current?.role === 'admin') {
+      navigate('/venues');
+      return;
+    }
     const storedData = sessionStorage.getItem('bookingData');
     if (storedData) {
       const parsed = JSON.parse(storedData);
@@ -36,7 +42,7 @@ export default function Booking() {
         setFormData((prev) => ({ ...prev, guests: String(parsed.estimatedGuests) }));
       }
     }
-  }, []);
+  }, [navigate]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

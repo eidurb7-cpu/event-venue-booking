@@ -84,6 +84,18 @@ export interface VendorPost {
   updatedAt: string;
 }
 
+export interface PublicVendorPost {
+  id: string;
+  title: string;
+  serviceName: string;
+  description?: string | null;
+  city?: string | null;
+  basePrice?: number | null;
+  availability?: Record<string, boolean>;
+  createdAt: string;
+  vendorName: string;
+}
+
 export interface StripeConnectStatus {
   connected: boolean;
   stripeAccountId: string | null;
@@ -328,6 +340,10 @@ export function getVendorProfile(email: string) {
 
 export function getVendorPosts(vendorEmail: string) {
   return request(`/api/vendor/posts?vendorEmail=${encodeURIComponent(vendorEmail)}`) as Promise<{ posts: VendorPost[] }>;
+}
+
+export function getPublicVendorPosts() {
+  return request('/api/vendor/posts/public') as Promise<{ posts: PublicVendorPost[] }>;
 }
 
 export function createVendorPost(payload: {
