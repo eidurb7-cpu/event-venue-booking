@@ -2,13 +2,17 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import {
   ServiceRequest,
+  VendorCompliance,
   StripeConnectStatus,
   VendorApplication,
   VendorOfferWithRequest,
   VendorPost,
+  acceptVendorContract,
   applyVendorOffer,
+  completeVendorTraining,
   createStripeConnectOnboarding,
   createVendorPost,
+  getVendorCompliance,
   getStripeConnectStatus,
   getOpenRequests,
   getVendorOffers,
@@ -32,6 +36,7 @@ export default function VendorPortfolio() {
     pendingInfo: isDe ? 'Bitte warten, bis Admin deine Bewerbung freigibt.' : 'Please wait until admin reviews your application.',
     rejectedInfo: isDe ? 'Deine Bewerbung wurde abgelehnt. Bitte Admin kontaktieren.' : 'Your application was rejected. Please contact admin.',
     statusApproved: isDe ? 'Du kannst jetzt Angebote senden und deine Services verwalten.' : 'You can now send offers and manage your services.',
+    statusGated: isDe ? 'Veroeffentlichen/Antworten ist erst nach Vertrag + Training + Admin-Freigabe aktiv.' : 'Publishing/responding is enabled only after contract + training + admin approval.',
     account: isDe ? 'Mein Account' : 'My account',
     sendToAdmin: isDe ? 'Anfrage an Admin senden' : 'Send inquiry to admin',
     servicePosts: isDe ? 'Meine Service-Posts & Verfuegbarkeit' : 'My service posts and availability',
@@ -43,6 +48,7 @@ export default function VendorPortfolio() {
   const [manualEmail, setManualEmail] = useState('');
   const [manualName, setManualName] = useState('');
   const [vendorProfile, setVendorProfile] = useState<VendorApplication | null>(null);
+  const [vendorCompliance, setVendorCompliance] = useState<VendorCompliance | null>(null);
   const [openRequests, setOpenRequests] = useState<ServiceRequest[]>([]);
   const [myOffers, setMyOffers] = useState<VendorOfferWithRequest[]>([]);
   const [posts, setPosts] = useState<VendorPost[]>([]);
@@ -50,6 +56,7 @@ export default function VendorPortfolio() {
   const [offersLoading, setOffersLoading] = useState(false);
   const [stripeLoading, setStripeLoading] = useState(false);
   const [stripeStatus, setStripeStatus] = useState<StripeConnectStatus | null>(null);
+  const [complianceLoading, setComplianceLoading] = useState(false);
   const [error, setError] = useState('');
   const [postSuccess, setPostSuccess] = useState('');
   const [priceByRequest, setPriceByRequest] = useState<Record<string, string>>({});
@@ -80,6 +87,7 @@ export default function VendorPortfolio() {
     try {
       const data = await getVendorProfile(email);
       setVendorProfile(data.vendor);
+      setVendorCompliance(data.vendor.compliance || null);
       setVendorName(data.vendor.businessName || '');
       return data.vendor;
     } catch (err) {
@@ -99,13 +107,26 @@ export default function VendorPortfolio() {
     setLoading(true);
     const vendor = await loadVendorProfile(email.trim());
     if (vendor) {
-      await loadMyOffers(email.trim());
+      await Promise.all([loadMyOffers(email.trim()), loadVendorComplianceStatus(email.trim())]);
       await loadStripeStatus(email.trim());
-      if (vendor.status === 'approved') {
+      if (vendor.compliance?.canPublish) {
         await Promise.all([loadOpenRequests(), loadPosts(email.trim())]);
       }
     }
     setLoading(false);
+  };
+
+  const loadVendorComplianceStatus = async (email: string) => {
+    if (!email.trim()) {
+      setVendorCompliance(null);
+      return;
+    }
+    try {
+      const data = await getVendorCompliance(email.trim());
+      setVendorCompliance(data.compliance);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Fehler beim Laden des Compliance-Status.');
+    }
   };
 
   const loadOpenRequests = async () => {
@@ -176,6 +197,10 @@ export default function VendorPortfolio() {
   }, []);
 
   const applyOffer = async (requestId: string) => {
+    if (!vendorCompliance?.canPublish) {
+      setError('Responding is blocked until admin approval, contract acceptance, and training completion.');
+      return;
+    }
     const price = Number(priceByRequest[requestId] || 0);
     if (!vendorName.trim() || price <= 0 || !vendorEmail.trim()) return;
     setError('');
@@ -229,6 +254,10 @@ export default function VendorPortfolio() {
   };
 
   const createPost = async () => {
+    if (!vendorCompliance?.canPublish) {
+      setError('Publishing is blocked until admin approval, contract acceptance, and training completion.');
+      return;
+    }
     if (!vendorEmail.trim() || !postForm.title.trim() || !postForm.serviceName.trim()) return;
     setError('');
     setPostSuccess('');
@@ -258,6 +287,10 @@ export default function VendorPortfolio() {
   };
 
   const togglePostActive = async (post: VendorPost) => {
+    if (!vendorCompliance?.canPublish) {
+      setError('Publishing is blocked until admin approval, contract acceptance, and training completion.');
+      return;
+    }
     try {
       await updateVendorPost(post.id, { vendorEmail, isActive: !post.isActive });
       await loadPosts(vendorEmail);
@@ -279,6 +312,10 @@ export default function VendorPortfolio() {
   };
 
   const savePostEdit = async (postId: string) => {
+    if (!vendorCompliance?.canPublish) {
+      setError('Publishing is blocked until admin approval, contract acceptance, and training completion.');
+      return;
+    }
     if (!editPostForm.title.trim() || !editPostForm.serviceName.trim()) {
       setError('Titel und Service sind Pflichtfelder.');
       return;
@@ -376,7 +413,89 @@ export default function VendorPortfolio() {
         <div className="bg-white rounded-xl shadow-md p-6">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">{tx.dashboard}</h1>
           <p className="text-gray-600">Status: approved. {tx.statusApproved}</p>
+          <p className="text-xs text-gray-500 mt-1">{tx.statusGated}</p>
           {error && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+        </div>
+
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-3">{isDe ? 'Aktivierungs-Checkliste' : 'Activation checklist'}</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+            <div className={`rounded-lg border px-3 py-2 ${vendorCompliance?.adminApproved ? 'border-green-200 bg-green-50 text-green-700' : 'border-yellow-200 bg-yellow-50 text-yellow-800'}`}>
+              {vendorCompliance?.adminApproved ? 'Admin approved' : 'Admin approval pending'}
+            </div>
+            <div className={`rounded-lg border px-3 py-2 ${vendorCompliance?.contractAccepted ? 'border-green-200 bg-green-50 text-green-700' : 'border-yellow-200 bg-yellow-50 text-yellow-800'}`}>
+              {vendorCompliance?.contractAccepted ? `Contract accepted (${vendorCompliance.contractVersion || 'v1.0'})` : 'Vendor contract not accepted'}
+            </div>
+            <div className={`rounded-lg border px-3 py-2 ${vendorCompliance?.trainingCompleted ? 'border-green-200 bg-green-50 text-green-700' : 'border-yellow-200 bg-yellow-50 text-yellow-800'}`}>
+              {vendorCompliance?.trainingCompleted ? 'Training completed' : 'Training not completed'}
+            </div>
+            <div className={`rounded-lg border px-3 py-2 ${vendorCompliance?.canPublish ? 'border-green-200 bg-green-50 text-green-700' : 'border-gray-200 bg-gray-50 text-gray-700'}`}>
+              {vendorCompliance?.canPublish ? 'Vendor ACTIVE: publishing/responding unlocked' : 'Vendor not active yet'}
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link to="/vendor-terms" className="rounded-lg border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50">
+              Open Vendor Agreement
+            </Link>
+            <button
+              type="button"
+              disabled={Boolean(vendorCompliance?.contractAccepted) || complianceLoading || !vendorEmail}
+              onClick={async () => {
+                if (!vendorEmail.trim()) return;
+                setComplianceLoading(true);
+                setError('');
+                try {
+                  const data = await acceptVendorContract({ vendorEmail: vendorEmail.trim(), contractVersion: 'v1.0' });
+                  setVendorCompliance(data.compliance);
+                  if (data.compliance.canPublish) {
+                    await Promise.all([loadOpenRequests(), loadPosts(vendorEmail.trim())]);
+                  }
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : 'Failed to accept contract.');
+                } finally {
+                  setComplianceLoading(false);
+                }
+              }}
+              className="rounded-lg bg-indigo-600 text-white px-3 py-2 text-sm hover:bg-indigo-700 disabled:opacity-60"
+            >
+              {vendorCompliance?.contractAccepted ? 'Contract accepted' : (complianceLoading ? 'Saving...' : 'Accept contract')}
+            </button>
+            <button
+              type="button"
+              disabled={Boolean(vendorCompliance?.trainingCompleted) || complianceLoading || !vendorEmail}
+              onClick={async () => {
+                if (!vendorEmail.trim()) return;
+                setComplianceLoading(true);
+                setError('');
+                try {
+                  const data = await completeVendorTraining({ vendorEmail: vendorEmail.trim() });
+                  setVendorCompliance(data.compliance);
+                  if (data.compliance.canPublish) {
+                    await Promise.all([loadOpenRequests(), loadPosts(vendorEmail.trim())]);
+                  }
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : 'Failed to complete training.');
+                } finally {
+                  setComplianceLoading(false);
+                }
+              }}
+              className="rounded-lg bg-gray-900 text-white px-3 py-2 text-sm hover:bg-black disabled:opacity-60"
+            >
+              {vendorCompliance?.trainingCompleted ? 'Training completed' : (complianceLoading ? 'Saving...' : 'Mark training complete')}
+            </button>
+            <button
+              type="button"
+              onClick={() => loadVendorComplianceStatus(vendorEmail)}
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50"
+            >
+              Refresh checklist
+            </button>
+          </div>
+          {!vendorCompliance?.canPublish && (
+            <p className="mt-3 text-xs text-amber-700">
+              You cannot publish listings or respond to requests until all checklist items are complete.
+            </p>
+          )}
         </div>
 
         {vendorProfile && (

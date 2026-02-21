@@ -1,6 +1,8 @@
 import 'dotenv/config';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
 import Stripe from 'stripe';
@@ -35,6 +37,8 @@ const SMTP_PASS = process.env.SMTP_PASS || '';
 const SMTP_FROM = process.env.SMTP_FROM || '';
 const ADMIN_NOTIFY_EMAIL = process.env.ADMIN_NOTIFY_EMAIL || '';
 const BOOKING_FLOW_MODE = String(process.env.BOOKING_FLOW_MODE || 'both').toLowerCase();
+const VENDOR_CONTRACT_VERSION = process.env.VENDOR_CONTRACT_VERSION || 'v1.0';
+const VENDOR_COMPLIANCE_FILE = process.env.VENDOR_COMPLIANCE_FILE || path.join(process.cwd(), 'backend', 'data', 'vendor-compliance.json');
 const DEFAULT_RESPONSE_HOURS = 48;
 const MAX_RESPONSE_HOURS = 168;
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60_000);
@@ -336,6 +340,109 @@ async function getVendorApplicationByEmail(email) {
   return prisma.vendorApplication.findFirst({
     where: { email: { equals: String(email || '').trim(), mode: 'insensitive' } },
   });
+}
+
+function normalizeVendorEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function defaultVendorCompliance() {
+  return {
+    contractAccepted: false,
+    contractAcceptedAt: null,
+    contractVersion: null,
+    contractAcceptedByUserId: null,
+    contractAcceptedIP: null,
+    trainingCompleted: false,
+    trainingCompletedAt: null,
+    updatedAt: null,
+  };
+}
+
+async function readVendorComplianceStore() {
+  try {
+    const raw = await fs.readFile(VENDOR_COMPLIANCE_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return { vendors: {} };
+    return {
+      vendors: parsed.vendors && typeof parsed.vendors === 'object' ? parsed.vendors : {},
+    };
+  } catch {
+    return { vendors: {} };
+  }
+}
+
+async function writeVendorComplianceStore(store) {
+  await fs.mkdir(path.dirname(VENDOR_COMPLIANCE_FILE), { recursive: true });
+  await fs.writeFile(VENDOR_COMPLIANCE_FILE, JSON.stringify(store, null, 2), 'utf8');
+}
+
+async function getVendorCompliance(vendorEmail) {
+  const store = await readVendorComplianceStore();
+  const key = normalizeVendorEmail(vendorEmail);
+  return {
+    ...defaultVendorCompliance(),
+    ...(store.vendors[key] || {}),
+  };
+}
+
+async function updateVendorCompliance(vendorEmail, updater) {
+  const store = await readVendorComplianceStore();
+  const key = normalizeVendorEmail(vendorEmail);
+  const current = {
+    ...defaultVendorCompliance(),
+    ...(store.vendors[key] || {}),
+  };
+  const next = {
+    ...current,
+    ...updater(current),
+    updatedAt: new Date().toISOString(),
+  };
+  store.vendors[key] = next;
+  await writeVendorComplianceStore(store);
+  return next;
+}
+
+function buildVendorActivationState(vendor, compliance) {
+  const adminApproved = vendor.status === 'approved';
+  const contractAccepted = Boolean(compliance.contractAccepted);
+  const trainingCompleted = Boolean(compliance.trainingCompleted);
+  const canBecomeActive = adminApproved && contractAccepted && trainingCompleted;
+  return {
+    ...compliance,
+    adminApproved,
+    canBecomeActive,
+    canPublish: canBecomeActive,
+  };
+}
+
+async function assertVendorCanPublishOrRespond(vendor) {
+  if (vendor.status !== 'approved') {
+    throw httpError(403, `Vendor account is ${vendor.status}. Admin approval required.`);
+  }
+  const compliance = await getVendorCompliance(vendor.email);
+  const activation = buildVendorActivationState(vendor, compliance);
+  if (!activation.contractAccepted || !activation.trainingCompleted) {
+    throw httpError(403, 'Vendor must accept contract and complete training before publishing or responding.');
+  }
+  return activation;
+}
+
+async function syncVendorProfileActivationStatus(tx, vendorApplication) {
+  const compliance = await getVendorCompliance(vendorApplication.email);
+  const activation = buildVendorActivationState(vendorApplication, compliance);
+  const identity = await ensureVendorIdentityFromApplication(tx, vendorApplication);
+  const { vendorProfile } = identity;
+  const nextStatus = activation.canBecomeActive
+    ? 'active'
+    : mapVendorApplicationStatusToProfileStatus(vendorApplication.status);
+  if (vendorProfile.status !== nextStatus) {
+    await tx.vendorProfile.update({
+      where: { id: vendorProfile.id },
+      data: { status: nextStatus },
+    });
+  }
+  return { ...identity, activation };
 }
 
 function canActorCounter(lastEventType, actorRole) {
@@ -1050,7 +1157,7 @@ createServer(async (req, res) => {
         return sendJson(res, 404, { error: 'No vendor application found for this Google account' });
       }
 
-      const { user } = await prisma.$transaction(async (tx) => ensureVendorIdentityFromApplication(tx, vendor));
+      const { user } = await prisma.$transaction(async (tx) => syncVendorProfileActivationStatus(tx, vendor));
       return sendJson(res, 200, {
         token: signUserToken(user),
         role: 'vendor',
@@ -1914,7 +2021,7 @@ createServer(async (req, res) => {
           where: { email: { equals: vendorEmail, mode: 'insensitive' } },
         });
         if (!app) throw httpError(404, 'Vendor account not found');
-        if (app.status !== 'approved') throw httpError(403, 'Vendor is not approved');
+        await assertVendorCanPublishOrRespond(app);
 
         const { vendorProfile } = await ensureVendorIdentityFromApplication(tx, app);
         if (!['approved', 'active'].includes(vendorProfile.status)) {
@@ -2251,7 +2358,16 @@ createServer(async (req, res) => {
       const applications = await prisma.vendorApplication.findMany({
         orderBy: { createdAt: 'desc' },
       });
-      return sendJson(res, 200, { applications });
+      const enriched = await Promise.all(
+        applications.map(async (app) => {
+          const compliance = await getVendorCompliance(app.email);
+          return {
+            ...app,
+            compliance: buildVendorActivationState(app, compliance),
+          };
+        }),
+      );
+      return sendJson(res, 200, { applications: enriched });
     }
 
     if (req.method === 'PATCH' && path.match(/^\/api\/admin\/vendor-applications\/[^/]+$/)) {
@@ -2277,13 +2393,7 @@ createServer(async (req, res) => {
       await prisma.$transaction(async (tx) => {
         const fresh = await tx.vendorApplication.findUnique({ where: { id: applicationId } });
         if (!fresh) return;
-        const { vendorProfile } = await ensureVendorIdentityFromApplication(tx, fresh);
-        if (status === 'approved') {
-          await tx.vendorProfile.update({
-            where: { id: vendorProfile.id },
-            data: { status: 'active' },
-          });
-        }
+        await syncVendorProfileActivationStatus(tx, fresh);
       });
 
       if (status === 'approved') {
@@ -2398,7 +2508,8 @@ createServer(async (req, res) => {
         where: { email: { equals: email, mode: 'insensitive' } },
       });
       if (!vendor) return sendJson(res, 404, { error: 'Vendor profile not found' });
-      return sendJson(res, 200, { vendor });
+      const compliance = await getVendorCompliance(vendor.email);
+      return sendJson(res, 200, { vendor: { ...vendor, compliance: buildVendorActivationState(vendor, compliance) } });
     }
 
     if (req.method === 'GET' && path === '/api/vendor/posts') {
@@ -2408,6 +2519,7 @@ createServer(async (req, res) => {
         where: { email: { equals: vendorEmail, mode: 'insensitive' } },
       });
       if (!vendor) return sendJson(res, 404, { error: 'Vendor profile not found' });
+      await assertVendorCanPublishOrRespond(vendor);
       const posts = await prisma.vendorPost.findMany({
         where: { vendorApplicationId: vendor.id },
         orderBy: { createdAt: 'desc' },
@@ -2428,13 +2540,23 @@ createServer(async (req, res) => {
             select: {
               businessName: true,
               city: true,
+              email: true,
+              status: true,
             },
           },
         },
         orderBy: { createdAt: 'desc' },
       });
+      const filtered = [];
+      for (const post of posts) {
+        const activation = buildVendorActivationState(
+          post.vendorApplication,
+          await getVendorCompliance(post.vendorApplication.email),
+        );
+        if (activation.canPublish) filtered.push(post);
+      }
       return sendJson(res, 200, {
-        posts: posts.map((post) => ({
+        posts: filtered.map((post) => ({
           id: post.id,
           title: post.title,
           serviceName: post.serviceName,
@@ -2456,9 +2578,7 @@ createServer(async (req, res) => {
         where: { email: { equals: vendorEmail, mode: 'insensitive' } },
       });
       if (!vendor) return sendJson(res, 404, { error: 'Vendor profile not found' });
-      if (vendor.status !== 'approved') {
-        return sendJson(res, 403, { error: `Vendor account is ${vendor.status}. Admin approval required.` });
-      }
+      await assertVendorCanPublishOrRespond(vendor);
       const { title, serviceName } = body;
       if (!title || !serviceName) return sendJson(res, 400, { error: 'Missing required fields' });
       const post = await prisma.vendorPost.create({
@@ -2485,9 +2605,7 @@ createServer(async (req, res) => {
         where: { email: { equals: vendorEmail, mode: 'insensitive' } },
       });
       if (!vendor) return sendJson(res, 404, { error: 'Vendor profile not found' });
-      if (vendor.status !== 'approved') {
-        return sendJson(res, 403, { error: `Vendor account is ${vendor.status}. Admin approval required.` });
-      }
+      await assertVendorCanPublishOrRespond(vendor);
       const post = await prisma.vendorPost.findUnique({ where: { id: postId } });
       if (!post) return sendJson(res, 404, { error: 'Post not found' });
       if (post.vendorApplicationId !== vendor.id) {
@@ -2551,11 +2669,7 @@ createServer(async (req, res) => {
           where: { email: { equals: body.vendorEmail, mode: 'insensitive' } },
         });
         if (!vendor) return sendJson(res, 404, { error: 'Vendor account not found. Please finish vendor signup first.' });
-        if (vendor.status !== 'approved') {
-          return sendJson(res, 403, {
-            error: `Dein Vendor-Konto ist ${vendor.status}. Bitte warte auf Admin-Freigabe.`,
-          });
-        }
+        await assertVendorCanPublishOrRespond(vendor);
       }
 
       const offer = await prisma.vendorOffer.create({
@@ -2579,6 +2693,79 @@ createServer(async (req, res) => {
           paidAt: offer.paidAt || null,
         },
       });
+    }
+
+    if (req.method === 'GET' && path === '/api/vendor/compliance') {
+      const vendorEmail = normalizeOptionalString(url.searchParams.get('vendorEmail'), 320);
+      if (!vendorEmail) return sendJson(res, 400, { error: 'vendorEmail is required' });
+
+      const isAdmin = isAdminAuthorized(req);
+      if (!isAdmin) {
+        const auth = requireJwt(req, 'vendor');
+        if (String(auth.email || '').toLowerCase() !== vendorEmail.toLowerCase()) {
+          return sendJson(res, 403, { error: 'Forbidden for this vendorEmail' });
+        }
+      }
+
+      const vendor = await getVendorApplicationByEmail(vendorEmail);
+      if (!vendor) return sendJson(res, 404, { error: 'Vendor profile not found' });
+      const compliance = await getVendorCompliance(vendor.email);
+      return sendJson(res, 200, { compliance: buildVendorActivationState(vendor, compliance) });
+    }
+
+    if (req.method === 'POST' && path === '/api/vendor/compliance/contract-accept') {
+      const auth = requireJwt(req, 'vendor');
+      const body = await readBody(req);
+      const vendorEmail = normalizeOptionalString(body.vendorEmail || auth.email, 320);
+      if (!vendorEmail) return sendJson(res, 400, { error: 'vendorEmail is required' });
+      if (String(auth.email || '').toLowerCase() !== vendorEmail.toLowerCase()) {
+        return sendJson(res, 403, { error: 'vendorEmail must match authenticated vendor' });
+      }
+      const vendor = await getVendorApplicationByEmail(vendorEmail);
+      if (!vendor) return sendJson(res, 404, { error: 'Vendor profile not found' });
+
+      const accepted = await updateVendorCompliance(vendor.email, (current) => ({
+        ...current,
+        contractAccepted: true,
+        contractAcceptedAt: new Date().toISOString(),
+        contractVersion: normalizeOptionalString(body.contractVersion, 32) || VENDOR_CONTRACT_VERSION,
+        contractAcceptedByUserId: String(auth.sub || ''),
+        contractAcceptedIP: getClientIp(req),
+      }));
+
+      await prisma.$transaction(async (tx) => {
+        const fresh = await tx.vendorApplication.findUnique({ where: { id: vendor.id } });
+        if (!fresh) return;
+        await syncVendorProfileActivationStatus(tx, fresh);
+      });
+
+      return sendJson(res, 200, { compliance: buildVendorActivationState(vendor, accepted) });
+    }
+
+    if (req.method === 'POST' && path === '/api/vendor/compliance/training-complete') {
+      const auth = requireJwt(req, 'vendor');
+      const body = await readBody(req);
+      const vendorEmail = normalizeOptionalString(body.vendorEmail || auth.email, 320);
+      if (!vendorEmail) return sendJson(res, 400, { error: 'vendorEmail is required' });
+      if (String(auth.email || '').toLowerCase() !== vendorEmail.toLowerCase()) {
+        return sendJson(res, 403, { error: 'vendorEmail must match authenticated vendor' });
+      }
+      const vendor = await getVendorApplicationByEmail(vendorEmail);
+      if (!vendor) return sendJson(res, 404, { error: 'Vendor profile not found' });
+
+      const completed = await updateVendorCompliance(vendor.email, (current) => ({
+        ...current,
+        trainingCompleted: true,
+        trainingCompletedAt: new Date().toISOString(),
+      }));
+
+      await prisma.$transaction(async (tx) => {
+        const fresh = await tx.vendorApplication.findUnique({ where: { id: vendor.id } });
+        if (!fresh) return;
+        await syncVendorProfileActivationStatus(tx, fresh);
+      });
+
+      return sendJson(res, 200, { compliance: buildVendorActivationState(vendor, completed) });
     }
 
     if (req.method === 'PATCH' && path.match(/^\/api\/requests\/[^/]+\/offers\/[^/]+$/)) {

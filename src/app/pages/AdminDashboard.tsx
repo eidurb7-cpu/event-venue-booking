@@ -464,6 +464,11 @@ export default function AdminDashboard() {
                   Kontakt: {app.contactName} | {app.email}
                 </p>
                 {app.city && <p className="text-sm text-gray-600 mt-1">Stadt: {app.city}</p>}
+                {app.compliance && (
+                  <p className="text-xs text-gray-600 mt-1">
+                    Compliance: admin={app.compliance.adminApproved ? 'yes' : 'no'}, contract={app.compliance.contractAccepted ? 'yes' : 'no'}, training={app.compliance.trainingCompleted ? 'yes' : 'no'}, active={app.compliance.canPublish ? 'yes' : 'no'}
+                  </p>
+                )}
                 {openApplicationIds[app.id] && (
                   <div className="mt-3 rounded-lg bg-gray-50 border border-gray-200 p-3 text-sm text-gray-700 space-y-1">
                     {app.websiteUrl && <p>Website: {app.websiteUrl}</p>}
@@ -476,6 +481,10 @@ export default function AdminDashboard() {
                     )}
                     {app.documentName && <p>Dateiname: {app.documentName}</p>}
                     {app.stripeAccountId && <p>Stripe Connect: {app.stripeAccountId}</p>}
+                    {app.compliance && <p>Contract accepted: {app.compliance.contractAccepted ? 'yes' : 'no'}</p>}
+                    {app.compliance && app.compliance.contractAcceptedAt && <p>Contract accepted at: {new Date(app.compliance.contractAcceptedAt).toLocaleString()}</p>}
+                    {app.compliance && <p>Training completed: {app.compliance.trainingCompleted ? 'yes' : 'no'}</p>}
+                    {app.compliance && app.compliance.trainingCompletedAt && <p>Training completed at: {new Date(app.compliance.trainingCompletedAt).toLocaleString()}</p>}
                     {app.reviewNote && <p>Review Note: {app.reviewNote}</p>}
                     {app.reviewedAt && <p>Reviewed At: {new Date(app.reviewedAt).toLocaleString()}</p>}
                   </div>
@@ -663,6 +672,9 @@ export default function AdminDashboard() {
                   <p><strong>Website:</strong> {selectedApplication.websiteUrl || '-'}</p>
                   <p><strong>Portfolio:</strong> {selectedApplication.portfolioUrl || '-'}</p>
                   <p><strong>Stripe Connect:</strong> {selectedApplication.stripeAccountId || '-'}</p>
+                  <p><strong>Contract accepted:</strong> {selectedApplication.compliance?.contractAccepted ? 'yes' : 'no'}</p>
+                  <p><strong>Training completed:</strong> {selectedApplication.compliance?.trainingCompleted ? 'yes' : 'no'}</p>
+                  <p><strong>Can publish:</strong> {selectedApplication.compliance?.canPublish ? 'yes' : 'no'}</p>
                   <p><strong>Dokumentname:</strong> {selectedApplication.documentName || '-'}</p>
                   {selectedApplication.documentUrl ? (
                     <p>

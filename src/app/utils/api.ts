@@ -59,7 +59,21 @@ export interface VendorApplication {
   reviewNote?: string | null;
   reviewedAt?: string | null;
   googleSub?: string | null;
+  compliance?: VendorCompliance;
   createdAt: string;
+}
+
+export interface VendorCompliance {
+  contractAccepted: boolean;
+  contractAcceptedAt?: string | null;
+  contractVersion?: string | null;
+  contractAcceptedByUserId?: string | null;
+  contractAcceptedIP?: string | null;
+  trainingCompleted: boolean;
+  trainingCompletedAt?: string | null;
+  adminApproved: boolean;
+  canBecomeActive: boolean;
+  canPublish: boolean;
 }
 
 export interface ServiceCatalogItem {
@@ -348,6 +362,24 @@ export function getVendorOffers(vendorEmail: string) {
 
 export function getVendorProfile(email: string) {
   return request(`/api/vendor/profile?email=${encodeURIComponent(email)}`) as Promise<{ vendor: VendorApplication }>;
+}
+
+export function getVendorCompliance(vendorEmail: string) {
+  return request(`/api/vendor/compliance?vendorEmail=${encodeURIComponent(vendorEmail)}`) as Promise<{ compliance: VendorCompliance }>;
+}
+
+export function acceptVendorContract(payload: { vendorEmail: string; contractVersion?: string }) {
+  return request('/api/vendor/compliance/contract-accept', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }) as Promise<{ compliance: VendorCompliance }>;
+}
+
+export function completeVendorTraining(payload: { vendorEmail: string }) {
+  return request('/api/vendor/compliance/training-complete', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }) as Promise<{ compliance: VendorCompliance }>;
 }
 
 export function getVendorPosts(vendorEmail: string) {
