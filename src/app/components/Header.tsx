@@ -1,7 +1,7 @@
 import { Link, useLocation, useNavigate } from 'react-router';
 import { Calendar, MapPin, Home, Globe, BriefcaseBusiness, ShieldCheck, User, LogOut, Menu, X, ArrowLeft } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { clearAdminSession, clearCurrentUser, getAdminToken, getCurrentUser } from '../utils/auth';
 
 export function Header() {
@@ -12,6 +12,8 @@ export function Header() {
   const [currentRole, setCurrentRole] = useState<'customer' | 'vendor' | 'admin' | ''>('');
   const [currentName, setCurrentName] = useState('');
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [languageOpen, setLanguageOpen] = useState(false);
+  const languageMenuRef = useRef<HTMLDivElement | null>(null);
 
   const languages = [
     { code: 'de' as const, name: 'Deutsch' },
@@ -25,6 +27,17 @@ export function Header() {
     setCurrentRole((current?.role as 'customer' | 'vendor' | 'admin' | '') || '');
     setCurrentName(current?.user?.name || '');
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (!languageOpen) return;
+    const onClickOutside = (event: MouseEvent) => {
+      if (languageMenuRef.current && !languageMenuRef.current.contains(event.target as Node)) {
+        setLanguageOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [languageOpen]);
 
   const accountHref =
     currentRole === 'vendor' ? '/vendor-portfolio' : currentRole === 'admin' ? '/admin' : '/customer-portfolio';
@@ -105,17 +118,24 @@ export function Header() {
           </nav>
 
           <div className="flex items-center gap-2 sm:gap-4">
-            <div className="relative group">
-              <button type="button" className="flex items-center gap-2 text-gray-600 hover:text-purple-600 transition-colors px-3 py-2 rounded-lg hover:bg-gray-50">
+            <div ref={languageMenuRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setLanguageOpen((v) => !v)}
+                className="flex items-center gap-2 text-gray-600 hover:text-purple-600 transition-colors px-3 py-2 rounded-lg hover:bg-gray-50"
+              >
                 <Globe className="size-5" />
                 <span className="hidden sm:inline">{languages.find((l) => l.code === language)?.name}</span>
               </button>
 
-              <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
+              <div className={`absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border transition-all duration-200 z-20 ${languageOpen ? 'opacity-100 visible' : 'opacity-0 invisible'}`}>
                 {languages.map((lang) => (
                   <button
                     key={lang.code}
-                    onClick={() => setLanguage(lang.code)}
+                    onClick={() => {
+                      setLanguage(lang.code);
+                      setLanguageOpen(false);
+                    }}
                     className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-purple-50 transition-colors first:rounded-t-lg last:rounded-b-lg ${
                       language === lang.code ? 'bg-purple-100 text-purple-600' : 'text-gray-700'
                     }`}
@@ -173,7 +193,10 @@ export function Header() {
             )}
             <button
               type="button"
-              onClick={() => setMobileOpen((prev) => !prev)}
+              onClick={() => {
+                setMobileOpen((prev) => !prev);
+                setLanguageOpen(false);
+              }}
               className="inline-flex md:hidden items-center justify-center rounded-lg border border-gray-300 p-2 text-gray-700 hover:bg-gray-50"
               aria-label="Mobile Menu"
             >
@@ -186,36 +209,68 @@ export function Header() {
           <div className="md:hidden mt-3 rounded-lg border border-gray-200 bg-white p-3 space-y-2">
             <Link
               to="/"
-              onClick={() => setMobileOpen(false)}
+              onClick={() => {
+                setMobileOpen(false);
+                setLanguageOpen(false);
+              }}
               className="block rounded-lg px-3 py-2 text-gray-700 hover:bg-gray-50"
             >
               {t('nav.home')}
             </Link>
             <Link
               to="/venues"
-              onClick={() => setMobileOpen(false)}
+              onClick={() => {
+                setMobileOpen(false);
+                setLanguageOpen(false);
+              }}
               className="block rounded-lg px-3 py-2 text-gray-700 hover:bg-gray-50"
             >
               {t('nav.venues')}
             </Link>
             <Link
               to="/services"
-              onClick={() => setMobileOpen(false)}
+              onClick={() => {
+                setMobileOpen(false);
+                setLanguageOpen(false);
+              }}
               className="block rounded-lg px-3 py-2 text-gray-700 hover:bg-gray-50"
             >
               {t('nav.services')}
             </Link>
             <Link
               to="/request"
-              onClick={() => setMobileOpen(false)}
+              onClick={() => {
+                setMobileOpen(false);
+                setLanguageOpen(false);
+              }}
               className="block rounded-lg px-3 py-2 text-gray-700 hover:bg-gray-50"
             >
               {t('nav.request')}
             </Link>
+            <div className="border-t border-gray-200 pt-2 mt-1">
+              <p className="px-3 py-1 text-xs font-medium text-gray-500">Language</p>
+              {languages.map((lang) => (
+                <button
+                  key={lang.code}
+                  type="button"
+                  onClick={() => {
+                    setLanguage(lang.code);
+                    setMobileOpen(false);
+                    setLanguageOpen(false);
+                  }}
+                  className={`w-full text-left rounded-lg px-3 py-2 ${language === lang.code ? 'bg-purple-100 text-purple-700' : 'text-gray-700 hover:bg-gray-50'}`}
+                >
+                  {lang.name}
+                </button>
+              ))}
+            </div>
             {isAdmin && (
               <Link
                 to="/admin"
-                onClick={() => setMobileOpen(false)}
+                onClick={() => {
+                  setMobileOpen(false);
+                  setLanguageOpen(false);
+                }}
                 className="block rounded-lg px-3 py-2 text-gray-700 hover:bg-gray-50"
               >
                 Admin
@@ -225,7 +280,10 @@ export function Header() {
               <>
                 <Link
                   to={accountHref}
-                  onClick={() => setMobileOpen(false)}
+                  onClick={() => {
+                    setMobileOpen(false);
+                    setLanguageOpen(false);
+                  }}
                   className="block rounded-lg px-3 py-2 text-gray-700 hover:bg-gray-50"
                 >
                   {t('nav.account')}
@@ -242,14 +300,20 @@ export function Header() {
               <>
                 <Link
                   to="/login"
-                  onClick={() => setMobileOpen(false)}
+                  onClick={() => {
+                    setMobileOpen(false);
+                    setLanguageOpen(false);
+                  }}
                   className="block rounded-lg px-3 py-2 text-gray-700 hover:bg-gray-50"
                 >
                   {t('nav.login')}
                 </Link>
                 <Link
                   to="/signup"
-                  onClick={() => setMobileOpen(false)}
+                  onClick={() => {
+                    setMobileOpen(false);
+                    setLanguageOpen(false);
+                  }}
                   className="block rounded-lg px-3 py-2 text-white bg-purple-600 hover:bg-purple-700"
                 >
                   {t('nav.signup')}
