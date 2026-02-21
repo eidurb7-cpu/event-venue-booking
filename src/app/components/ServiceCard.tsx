@@ -7,10 +7,17 @@ interface ServiceCardProps {
   service: Service;
   selectedProviderIds?: string[];
   onAddToCart?: (serviceId: string, providerId: string) => void;
+  onCompleteBooking?: (serviceId: string, providerId: string) => void;
   selectedDate?: string;
 }
 
-export function ServiceCard({ service, selectedProviderIds = [], onAddToCart, selectedDate }: ServiceCardProps) {
+export function ServiceCard({
+  service,
+  selectedProviderIds = [],
+  onAddToCart,
+  onCompleteBooking,
+  selectedDate,
+}: ServiceCardProps) {
   const { t, language } = useLanguage();
   const [expandedProviderId, setExpandedProviderId] = useState<string | null>(null);
   
@@ -107,7 +114,17 @@ export function ServiceCard({ service, selectedProviderIds = [], onAddToCart, se
                     onClick={() => onAddToCart?.(service.id, provider.id)}
                     className="rounded-lg bg-purple-600 text-white px-3 py-1.5 text-sm font-semibold hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                   >
-                    {isAdded ? (language === 'de' ? 'Entfernen' : 'Remove') : (language === 'de' ? 'Hinzufuegen' : 'Add')}
+                    {isAdded
+                      ? (language === 'de' ? 'Ausgewaehlt (klicken zum Entfernen)' : 'Selected (click to remove)')
+                      : (language === 'de' ? 'Hinzufuegen' : 'Add')}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!available}
+                    onClick={() => onCompleteBooking?.(service.id, provider.id)}
+                    className="rounded-lg border border-purple-300 text-purple-700 px-3 py-1.5 text-sm font-semibold hover:bg-purple-50 disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-300"
+                  >
+                    {language === 'de' ? 'Buchung abschliessen' : 'Complete booking'}
                   </button>
                 </div>
 

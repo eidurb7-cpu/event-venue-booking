@@ -2,6 +2,8 @@ import { Link, useNavigate } from 'react-router';
 import { ArrowRight, ShoppingCart, Trash2 } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { getCurrentUser } from '../utils/auth';
+import { createRequest } from '../utils/api';
+import { useState } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 const FRONTEND_BASE_URL = import.meta.env.VITE_FRONTEND_BASE_URL || window.location.origin;
@@ -9,6 +11,8 @@ const FRONTEND_BASE_URL = import.meta.env.VITE_FRONTEND_BASE_URL || window.locat
 export default function Cart() {
   const navigate = useNavigate();
   const { cart, total, removeService, clearCart, clearVenue } = useCart();
+  const [requestSending, setRequestSending] = useState(false);
+  const [savingLater, setSavingLater] = useState(false);
   const currentUser = getCurrentUser();
   const isBookingBlockedForRole = currentUser?.role === 'vendor' || currentUser?.role === 'admin';
 
@@ -48,6 +52,60 @@ export default function Cart() {
       return;
     }
     window.location.href = data.url;
+  }
+
+  async function sendRequestToVendors() {
+    if (!currentUser || currentUser.role !== 'customer' || !currentUser.user.email) {
+      alert('Please login with a customer account first.');
+      navigate('/login');
+      return;
+    }
+    if (!cart.venue) {
+      alert('Please select a venue before sending request.');
+      return;
+    }
+
+    const selectedServices = Array.from(
+      new Set(
+        cart.services
+          .map((service) => String(service.category || '').trim())
+          .filter((category) => category.length > 0),
+      ),
+    );
+    const requestServices = selectedServices.length > 0 ? selectedServices : ['venue'];
+
+    const lines = cart.services.map((service) => `- ${service.title} (EUR ${service.price})`);
+    const notes = [
+      `Venue: ${cart.venue.title} (EUR ${cart.venue.price})`,
+      lines.length > 0 ? 'Selected services:' : 'No extra services selected.',
+      ...lines,
+      `Cart total: EUR ${total}`,
+    ].join('\n');
+
+    setRequestSending(true);
+    try {
+      await createRequest({
+        customerName: currentUser.user.name || 'Customer',
+        customerEmail: currentUser.user.email,
+        selectedServices: requestServices,
+        budget: Math.max(1, total),
+        notes,
+      });
+      alert('Request sent to vendors successfully.');
+      navigate('/customer-portfolio');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to send request to vendors.');
+    } finally {
+      setRequestSending(false);
+    }
+  }
+
+  function saveForLater() {
+    setSavingLater(true);
+    setTimeout(() => {
+      setSavingLater(false);
+      alert('Saved. You can continue later from Cart.');
+    }, 200);
   }
 
   return (
@@ -137,11 +195,27 @@ export default function Cart() {
             </button>
             <button
               type="button"
+              onClick={saveForLater}
+              disabled={!cart.venue || savingLater}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-purple-300 px-4 py-2.5 text-sm font-semibold text-purple-700 hover:bg-purple-50 disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-300"
+            >
+              {savingLater ? 'Saving...' : 'Save for later'}
+            </button>
+            <button
+              type="button"
+              onClick={sendRequestToVendors}
+              disabled={total <= 0 || !cart.venue || requestSending || isBookingBlockedForRole}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-purple-300 px-4 py-2.5 text-sm font-semibold text-purple-700 hover:bg-purple-50 disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-300"
+            >
+              {requestSending ? 'Sending request...' : isBookingBlockedForRole ? 'Customers only' : 'Send request to vendors'}
+            </button>
+            <button
+              type="button"
               onClick={checkout}
               disabled={total <= 0 || !cart.venue || isBookingBlockedForRole}
               className="sm:ml-auto inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
             >
-              {isBookingBlockedForRole ? 'Customers only' : 'Checkout'}
+              {isBookingBlockedForRole ? 'Customers only' : 'Pay now'}
               <ArrowRight className="size-4" />
             </button>
           </div>

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router';
-import { MapPin, Users, Check, ArrowRight, Calendar as CalendarIcon, Trash2 } from 'lucide-react';
+import { MapPin, Users, Check, Calendar as CalendarIcon, Trash2, ArrowRight } from 'lucide-react';
 import { venues, services } from '../data/mockData';
 import { ServiceCard } from '../components/ServiceCard';
 import { useLanguage } from '../context/LanguageContext';
@@ -25,11 +25,13 @@ export default function VenueDetail() {
   const [selectedDate, setSelectedDate] = useState('');
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [estimatedGuests, setEstimatedGuests] = useState('50');
-  const checkoutSectionRef = useRef<HTMLDivElement | null>(null);
-  const cartSectionRef = useRef<HTMLDivElement | null>(null);
+  const [payNowLoading, setPayNowLoading] = useState(false);
+  const [saveLaterLoading, setSaveLaterLoading] = useState(false);
   const currentUser = getCurrentUser();
   const isBookingBlockedForRole = currentUser?.role === 'vendor' || currentUser?.role === 'admin';
   const venueStateStorageKey = venue ? `venueState:${venue.id}` : '';
+  const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
+  const FRONTEND_BASE_URL = import.meta.env.VITE_FRONTEND_BASE_URL || window.location.origin;
 
   useEffect(() => {
     if (!venueStateStorageKey) return;
@@ -48,6 +50,13 @@ export default function VenueDetail() {
     if (!venueStateStorageKey) return;
     localStorage.setItem(venueStateStorageKey, JSON.stringify({ selectedDate, estimatedGuests }));
   }, [venueStateStorageKey, selectedDate, estimatedGuests]);
+
+  useEffect(() => {
+    if (!venue) return;
+    if (cart.venue?.id === venue.id) return;
+    // Auto-cart: selecting/opening a venue page sets that venue in cart.
+    setVenue(toCartVenue(venue));
+  }, [venue, cart.venue?.id, setVenue]);
 
   if (!venue) {
     return (
@@ -77,6 +86,16 @@ export default function VenueDetail() {
     });
   };
 
+  const handleCompleteBookingFromService = (serviceId: string, providerId: string) => {
+    if (!hasService(`${serviceId}:${providerId}`)) {
+      handleToggleService(serviceId, providerId);
+    }
+    if (cart.venue?.id !== venue.id) {
+      setVenue(toCartVenue(venue));
+    }
+    navigate('/cart');
+  };
+
   const selectedServices = useMemo(() => {
     return cart.services
       .map((item) => {
@@ -100,12 +119,8 @@ export default function VenueDetail() {
   };
 
   const handleProceedToBooking = () => {
-    if (currentUser?.role === 'vendor') {
-      alert('Vendor accounts are view-only for booking pages. Please use a customer account to book.');
-      return;
-    }
-    if (currentUser?.role === 'admin') {
-      alert('Admin accounts cannot place bookings. Please use a customer account.');
+    if (isBookingBlockedForRole) {
+      alert('Please use a customer account to continue.');
       return;
     }
     if (!selectedDate) {
@@ -114,10 +129,6 @@ export default function VenueDetail() {
     }
     if (venue.bookedDates.includes(selectedDate)) {
       alert(t('venue.alert.notAvailable'));
-      return;
-    }
-    if (!cart.venue || cart.venue.id !== venue.id) {
-      alert('Please add this venue to cart before proceeding.');
       return;
     }
 
@@ -136,7 +147,55 @@ export default function VenueDetail() {
     navigate('/booking');
   };
 
-  const hasSelectedProviders = selectedServices.length > 0;
+  const handlePayNow = async () => {
+    if (isBookingBlockedForRole) {
+      alert('Please use a customer account for checkout.');
+      return;
+    }
+    if (!cart.venue) {
+      alert('Select a venue to continue.');
+      return;
+    }
+    setPayNowLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/stripe/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cart,
+          successUrl: `${FRONTEND_BASE_URL}/checkout/success`,
+          cancelUrl: `${FRONTEND_BASE_URL}/cart`,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        alert(`Checkout error: ${body?.error || res.statusText}`);
+        return;
+      }
+      const data = (await res.json()) as { url?: string | null };
+      if (!data?.url) {
+        alert('Checkout URL missing. Please try again.');
+        return;
+      }
+      window.location.href = data.url;
+    } finally {
+      setPayNowLoading(false);
+    }
+  };
+
+  const handleSaveForLater = () => {
+    if (!cart.venue) {
+      alert('Select a venue to continue.');
+      return;
+    }
+    setSaveLaterLoading(true);
+    setTimeout(() => {
+      setSaveLaterLoading(false);
+      alert('Saved. You can continue later from Cart.');
+      navigate('/cart');
+    }, 200);
+  };
+
   const hasCateringSelected = selectedServices.some((entry) => entry.service?.category === 'catering');
   const isVenueAvailable = selectedDate ? !venue.bookedDates.includes(selectedDate) : true;
   const today = new Date().toISOString().split('T')[0];
@@ -177,7 +236,6 @@ export default function VenueDetail() {
               <div className="inline-block bg-purple-100 text-purple-600 px-3 py-1 rounded-full text-sm mb-4">
                 {venue.type}
               </div>
-
               <h1 className="text-2xl sm:text-4xl font-bold text-gray-900 mb-4">{venue.name}</h1>
               <p className="text-gray-600 mb-6">{venue.description}</p>
 
@@ -214,7 +272,7 @@ export default function VenueDetail() {
                   onClick={() => setVenue(toCartVenue(venue))}
                   className="rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-purple-700"
                 >
-                  {cart.venue?.id === venue.id ? 'Venue added ✓' : 'Add venue to cart'}
+                  {cart.venue?.id === venue.id ? 'Added ✓' : 'Add venue to cart'}
                 </button>
               </div>
             </div>
@@ -234,13 +292,14 @@ export default function VenueDetail() {
                   .filter((provider) => hasService(`${service.id}:${provider.id}`))
                   .map((provider) => provider.id)}
                 onAddToCart={handleToggleService}
+                onCompleteBooking={handleCompleteBookingFromService}
                 selectedDate={selectedDate}
               />
             ))}
           </div>
         </div>
 
-        <div ref={checkoutSectionRef} className="bg-white rounded-xl shadow-md p-4 sm:p-8 sticky bottom-2 sm:bottom-4">
+        <div className="bg-white rounded-xl shadow-md p-4 sm:p-8 sticky bottom-2 sm:bottom-4">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="flex-1 grid gap-6 lg:grid-cols-2 lg:items-end">
               <div>
@@ -297,7 +356,7 @@ export default function VenueDetail() {
               </div>
             </div>
 
-            <div ref={cartSectionRef} className="w-full lg:w-[360px] border border-gray-200 rounded-lg p-3 sm:p-4 bg-gray-50">
+            <div className="w-full lg:w-[360px] border border-gray-200 rounded-lg p-3 sm:p-4 bg-gray-50">
               <h4 className="font-semibold text-gray-900 mb-2">{language === 'de' ? 'Warenkorb' : 'Cart'}</h4>
               {selectedServices.length === 0 ? (
                 <p className="text-sm text-gray-600">
@@ -324,22 +383,35 @@ export default function VenueDetail() {
                   ))}
                 </div>
               )}
-              <Link
-                to="/cart"
-                className="mt-3 inline-flex text-sm font-medium text-purple-700 hover:text-purple-900"
-              >
+              <Link to="/cart" className="mt-3 inline-flex text-sm font-medium text-purple-700 hover:text-purple-900">
                 {language === 'de' ? 'Zum Warenkorb' : 'Go to cart'}
               </Link>
             </div>
 
-            <button
-              onClick={handleProceedToBooking}
-              disabled={(selectedDate && !isVenueAvailable) || isBookingBlockedForRole}
-              className="w-full lg:w-auto flex items-center justify-center gap-2 bg-purple-600 text-white px-6 sm:px-8 py-3 sm:py-4 rounded-lg font-semibold hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
-            >
-              {isBookingBlockedForRole ? (language === 'de' ? 'Nur fuer Kundenkonto' : 'Customers only') : t('venue.summary.proceed')}
-              <ArrowRight className="size-5" />
-            </button>
+            <div className="w-full lg:w-auto flex flex-col gap-2">
+              <button
+                onClick={handlePayNow}
+                disabled={!cart.venue || payNowLoading || isBookingBlockedForRole}
+                className="w-full lg:w-auto flex items-center justify-center gap-2 bg-purple-600 text-white px-6 sm:px-8 py-3 sm:py-4 rounded-lg font-semibold hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                {payNowLoading ? 'Starting checkout...' : isBookingBlockedForRole ? 'Customers only' : 'Pay now'}
+                <ArrowRight className="size-5" />
+              </button>
+              <button
+                onClick={handleSaveForLater}
+                disabled={!cart.venue || saveLaterLoading}
+                className="w-full lg:w-auto rounded-lg border border-purple-300 bg-white px-6 sm:px-8 py-3 sm:py-4 text-sm font-semibold text-purple-700 hover:bg-purple-50 disabled:bg-gray-100 disabled:text-gray-400"
+              >
+                {saveLaterLoading ? 'Saving...' : 'Save for later'}
+              </button>
+              <button
+                onClick={handleProceedToBooking}
+                disabled={(selectedDate && !isVenueAvailable) || isBookingBlockedForRole}
+                className="w-full lg:w-auto rounded-lg border border-gray-300 bg-white px-6 sm:px-8 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
+              >
+                {isBookingBlockedForRole ? (language === 'de' ? 'Nur fuer Kundenkonto' : 'Customers only') : t('venue.summary.proceed')}
+              </button>
+            </div>
           </div>
         </div>
       </div>

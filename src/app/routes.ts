@@ -24,6 +24,7 @@ import Terms from './pages/Terms';
 import VendorTerms from './pages/VendorTerms';
 import RefundPolicy from './pages/RefundPolicy';
 import Contact from './pages/Contact';
+import About from './pages/About';
 import NotFound from './pages/NotFound';
 import RouteError from './pages/RouteError';
 
@@ -52,6 +53,7 @@ export const router = createBrowserRouter([
       { path: 'vendor-terms', Component: VendorTerms },
       { path: 'refund-policy', Component: RefundPolicy },
       { path: 'contact', Component: Contact },
+      { path: 'about', Component: About },
       { path: 'booking-thread/:bookingId', Component: BookingThreadPage },
       { path: 'venue/:id', Component: VenueDetail },
       { path: 'booking', Component: Booking },
