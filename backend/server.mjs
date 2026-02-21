@@ -9,7 +9,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import nodemailer from 'nodemailer';
 
 const prisma = new PrismaClient();
-const PORT = Number(process.env.API_PORT || 4000);
+const PORT = Number(process.env.PORT || process.env.API_PORT || 4000);
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'http://localhost:5173';
 const ADMIN_DASHBOARD_KEY = process.env.ADMIN_DASHBOARD_KEY || 'change-me-admin-key';
 const ADMIN_SETUP_KEY = process.env.ADMIN_SETUP_KEY || 'change-me-setup-key';
@@ -544,6 +544,10 @@ createServer(async (req, res) => {
     if (req.method === 'GET' && path === '/health') {
       await prisma.$queryRaw`SELECT 1`;
       return sendJson(res, 200, { ok: true, service: 'eventvenue-api' });
+    }
+
+    if (req.method === 'GET' && path === '/') {
+      return sendJson(res, 200, { ok: true, service: 'eventvenue-api', status: 'running' });
     }
 
     if (req.method === 'POST' && path === '/api/payments/webhook') {
@@ -2407,7 +2411,7 @@ createServer(async (req, res) => {
     const status = Number(error?.status) || 500;
     return sendJson(res, status, { error: error?.message || 'Internal server error' });
   }
-}).listen(PORT, async () => {
+}).listen(PORT, '0.0.0.0', async () => {
   try {
     await prisma.$connect();
     console.log(`API running on http://localhost:${PORT}`);
