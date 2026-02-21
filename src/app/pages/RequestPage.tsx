@@ -51,6 +51,29 @@ export default function RequestPage() {
     }));
   }, []);
 
+  useEffect(() => {
+    const draftRaw = sessionStorage.getItem('serviceRequestDraft');
+    if (!draftRaw) return;
+    try {
+      const draft = JSON.parse(draftRaw) as {
+        selectedServices?: string[];
+        budget?: string;
+        notes?: string;
+      };
+      setForm((prev) => ({
+        ...prev,
+        selectedServices:
+          draft.selectedServices && draft.selectedServices.length > 0 ? Array.from(new Set(draft.selectedServices)) : prev.selectedServices,
+        budget: draft.budget || prev.budget,
+        notes: draft.notes || prev.notes,
+      }));
+    } catch {
+      // Ignore invalid session draft.
+    } finally {
+      sessionStorage.removeItem('serviceRequestDraft');
+    }
+  }, []);
+
   const toggleService = (category: string) => {
     setForm((prev) => ({
       ...prev,

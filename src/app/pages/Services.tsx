@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ComponentType } from 'react';
 import { useNavigate } from 'react-router';
-import { Camera, Music, Palette, Search, SlidersHorizontal, Sparkles, Utensils } from 'lucide-react';
+import { ArrowRight, Camera, Music, Palette, Search, ShoppingCart, SlidersHorizontal, Sparkles, Trash2, Utensils } from 'lucide-react';
 import { services, type Service } from '../data/mockData';
 import { useLanguage } from '../context/LanguageContext';
 import { PublicVendorPost, createRequest, getPublicVendorPosts } from '../utils/api';
@@ -28,6 +28,11 @@ type ProviderRow = {
   providerReviews: number;
   providerPrice: number;
   specialties: string[];
+};
+
+type ServiceCartItem = {
+  row: ProviderRow;
+  quantity: number;
 };
 
 const categoryConfig: Array<{
@@ -64,8 +69,10 @@ export default function Services() {
   const [offerError, setOfferError] = useState('');
   const [offerSaving, setOfferSaving] = useState(false);
   const [publicPosts, setPublicPosts] = useState<PublicVendorPost[]>([]);
+  const [cartItems, setCartItems] = useState<ServiceCartItem[]>([]);
   const currentUser = getCurrentUser();
   const isVendorViewOnly = currentUser?.role === 'vendor';
+  const isBookingBlockedForRole = currentUser?.role === 'vendor' || currentUser?.role === 'admin';
 
   const providers = useMemo<ProviderRow[]>(() => {
     return services.flatMap((service) =>
@@ -200,6 +207,56 @@ export default function Services() {
     } finally {
       setOfferSaving(false);
     }
+  };
+
+  const handleAddToCart = (row: ProviderRow) => {
+    setCartItems((prev) => {
+      const index = prev.findIndex((item) => item.row.providerId === row.providerId && item.row.serviceId === row.serviceId);
+      if (index >= 0) {
+        return prev.map((item, i) => (i === index ? { ...item, quantity: Math.min(item.quantity + 1, 20) } : item));
+      }
+      return [...prev, { row, quantity: 1 }];
+    });
+  };
+
+  const handleRemoveFromCart = (providerId: string, serviceId: string) => {
+    setCartItems((prev) => prev.filter((item) => !(item.row.providerId === providerId && item.row.serviceId === serviceId)));
+  };
+
+  const handleChangeQuantity = (providerId: string, serviceId: string, quantity: number) => {
+    const safeQty = Number.isFinite(quantity) ? Math.max(1, Math.min(20, quantity)) : 1;
+    setCartItems((prev) =>
+      prev.map((item) =>
+        item.row.providerId === providerId && item.row.serviceId === serviceId ? { ...item, quantity: safeQty } : item
+      )
+    );
+  };
+
+  const cartTotal = useMemo(() => {
+    return cartItems.reduce((sum, item) => {
+      const qty = item.row.serviceCategory === 'catering' ? 1 : item.quantity;
+      return sum + item.row.providerPrice * qty;
+    }, 0);
+  }, [cartItems]);
+
+  const handleCompleteServiceBooking = () => {
+    if (isBookingBlockedForRole) return;
+    if (cartItems.length === 0) return;
+
+    const selectedCategories = Array.from(new Set(cartItems.map((item) => item.row.serviceCategory)));
+    const lines = cartItems.map((item) => {
+      const qty = item.row.serviceCategory === 'catering' ? 'per-person' : `qty ${item.quantity}`;
+      return `${item.row.serviceName}: ${item.row.providerName} (${qty})`;
+    });
+
+    const draft = {
+      selectedServices: selectedCategories,
+      budget: String(cartTotal),
+      notes: `Selected service cart:\n${lines.join('\n')}`,
+    };
+
+    sessionStorage.setItem('serviceRequestDraft', JSON.stringify(draft));
+    navigate('/request');
   };
 
   return (
@@ -342,13 +399,21 @@ export default function Services() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleOpenOffer(row)}
-                    disabled={isVendorViewOnly}
+                    onClick={() => handleAddToCart(row)}
+                    disabled={isBookingBlockedForRole}
                     className="rounded-lg bg-purple-600 text-white py-2.5 text-sm font-medium hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
                   >
-                    {isVendorViewOnly ? 'Nur Ansicht (Vendor)' : t('services.card.offerButton')}
+                    {isBookingBlockedForRole ? 'Nur Ansicht (Vendor/Admin)' : 'Add to cart'}
                   </button>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => handleOpenOffer(row)}
+                  disabled={isVendorViewOnly}
+                  className="mt-2 w-full rounded-lg border border-purple-300 text-purple-700 py-2 text-sm font-medium hover:bg-purple-50 transition-colors disabled:bg-gray-100 disabled:text-gray-400"
+                >
+                  {isVendorViewOnly ? 'Offer disabled for vendor' : t('services.card.offerButton')}
+                </button>
               </div>
             ))}
           </div>
@@ -382,6 +447,67 @@ export default function Services() {
             </div>
           )}
         </section>
+      </div>
+
+      <div className="fixed z-40 right-4 bottom-4 w-[min(92vw,380px)] rounded-xl border border-purple-200 bg-white shadow-xl">
+        <div className="p-3 border-b border-gray-100 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <ShoppingCart className="size-4 text-purple-700" />
+            <p className="text-sm font-semibold text-gray-900">Services Cart ({cartItems.length})</p>
+          </div>
+          <p className="text-sm font-bold text-purple-700">EUR {cartTotal.toLocaleString()}</p>
+        </div>
+        {cartItems.length === 0 ? (
+          <p className="p-3 text-sm text-gray-600">Add services from the list above.</p>
+        ) : (
+          <div className="max-h-52 overflow-auto p-3 space-y-2">
+            {cartItems.map((item) => (
+              <div key={`${item.row.serviceId}-${item.row.providerId}`} className="rounded-lg border border-gray-200 p-2.5">
+                <p className="text-sm font-medium text-gray-900">{item.row.providerName}</p>
+                <p className="text-xs text-gray-600">{item.row.serviceName}</p>
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  {item.row.serviceCategory === 'catering' ? (
+                    <p className="text-xs text-gray-500">Catering uses guests on request form.</p>
+                  ) : (
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={item.quantity}
+                      onChange={(e) =>
+                        handleChangeQuantity(
+                          item.row.providerId,
+                          item.row.serviceId,
+                          Number.parseInt(e.target.value || '1', 10)
+                        )
+                      }
+                      className="w-20 rounded border border-gray-300 px-2 py-1 text-sm"
+                    />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveFromCart(item.row.providerId, item.row.serviceId)}
+                    className="inline-flex items-center gap-1 rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                  >
+                    <Trash2 className="size-3.5" />
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="p-3 border-t border-gray-100">
+          <button
+            type="button"
+            onClick={handleCompleteServiceBooking}
+            disabled={cartItems.length === 0 || isBookingBlockedForRole}
+            className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 text-white py-2.5 text-sm font-semibold hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+          >
+            {isBookingBlockedForRole ? 'Customers only' : 'Complete booking'}
+            <ArrowRight className="size-4" />
+          </button>
+        </div>
       </div>
 
       <Dialog open={Boolean(activeProvider)} onOpenChange={(open) => !open && handleCloseProvider()}>
