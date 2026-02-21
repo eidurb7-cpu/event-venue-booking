@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router';
 import { MapPin, Users, Check, ArrowRight, Calendar as CalendarIcon, Trash2 } from 'lucide-react';
 import { venues, services } from '../data/mockData';
@@ -12,6 +12,12 @@ type CartItem = {
   serviceId: string;
   providerId: string;
   quantity: number;
+};
+
+type SavedVenueCartState = {
+  selectedDate: string;
+  estimatedGuests: string;
+  cartItems: CartItem[];
 };
 
 export default function VenueDetail() {
@@ -29,6 +35,40 @@ export default function VenueDetail() {
   const cartSectionRef = useRef<HTMLDivElement | null>(null);
   const currentUser = getCurrentUser();
   const isBookingBlockedForRole = currentUser?.role === 'vendor' || currentUser?.role === 'admin';
+  const venueCartStorageKey = venue ? `venueCart:${venue.id}` : '';
+
+  useEffect(() => {
+    if (!venueCartStorageKey) return;
+    try {
+      const raw = localStorage.getItem(venueCartStorageKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as SavedVenueCartState;
+      if (typeof parsed.selectedDate === 'string') setSelectedDate(parsed.selectedDate);
+      if (typeof parsed.estimatedGuests === 'string') setEstimatedGuests(parsed.estimatedGuests);
+      if (Array.isArray(parsed.cartItems)) {
+        const validItems = parsed.cartItems.filter(
+          (item) =>
+            item &&
+            typeof item.serviceId === 'string' &&
+            typeof item.providerId === 'string' &&
+            Number.isFinite(item.quantity)
+        );
+        setCartItems(validItems.map((item) => ({ ...item, quantity: Math.max(1, Math.min(20, item.quantity)) })));
+      }
+    } catch {
+      // Ignore corrupted saved cart state.
+    }
+  }, [venueCartStorageKey]);
+
+  useEffect(() => {
+    if (!venueCartStorageKey) return;
+    const payload: SavedVenueCartState = {
+      selectedDate,
+      estimatedGuests,
+      cartItems,
+    };
+    localStorage.setItem(venueCartStorageKey, JSON.stringify(payload));
+  }, [venueCartStorageKey, selectedDate, estimatedGuests, cartItems]);
 
   if (!venue) {
     return (
@@ -382,7 +422,7 @@ export default function VenueDetail() {
 
             <button
               onClick={handleProceedToBooking}
-              disabled={!selectedDate || !isVenueAvailable || isBookingBlockedForRole}
+              disabled={(selectedDate && !isVenueAvailable) || isBookingBlockedForRole}
               className="w-full lg:w-auto flex items-center justify-center gap-2 bg-purple-600 text-white px-6 sm:px-8 py-3 sm:py-4 rounded-lg font-semibold hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
             >
               {isBookingBlockedForRole ? (language === 'de' ? 'Nur fuer Kundenkonto' : 'Customers only') : t('venue.summary.proceed')}

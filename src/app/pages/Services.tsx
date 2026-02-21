@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ComponentType } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { useNavigate } from 'react-router';
 import { ArrowRight, Camera, Music, Palette, Search, ShoppingCart, SlidersHorizontal, Sparkles, Trash2, Utensils } from 'lucide-react';
 import { services, type Service } from '../data/mockData';
@@ -35,6 +35,8 @@ type ServiceCartItem = {
   quantity: number;
 };
 
+const SERVICE_CART_STORAGE_KEY = 'servicesCart:v1';
+
 const categoryConfig: Array<{
   id: CategoryFilter;
   icon: ComponentType<{ className?: string }>;
@@ -70,6 +72,7 @@ export default function Services() {
   const [offerSaving, setOfferSaving] = useState(false);
   const [publicPosts, setPublicPosts] = useState<PublicVendorPost[]>([]);
   const [cartItems, setCartItems] = useState<ServiceCartItem[]>([]);
+  const cartSectionRef = useRef<HTMLElement | null>(null);
   const currentUser = getCurrentUser();
   const isVendorViewOnly = currentUser?.role === 'vendor';
   const isBookingBlockedForRole = currentUser?.role === 'vendor' || currentUser?.role === 'admin';
@@ -102,6 +105,30 @@ export default function Services() {
       .then((data) => setPublicPosts(data.posts))
       .catch(() => setPublicPosts([]));
   }, []);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SERVICE_CART_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as ServiceCartItem[];
+      if (!Array.isArray(parsed)) return;
+      const validItems = parsed.filter(
+        (item) =>
+          item &&
+          item.row &&
+          typeof item.row.providerId === 'string' &&
+          typeof item.row.serviceId === 'string' &&
+          Number.isFinite(item.quantity)
+      );
+      setCartItems(validItems.map((item) => ({ ...item, quantity: Math.max(1, Math.min(20, item.quantity)) })));
+    } catch {
+      // Ignore invalid saved cart.
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(SERVICE_CART_STORAGE_KEY, JSON.stringify(cartItems));
+  }, [cartItems]);
 
   useEffect(() => {
     setMaxPrice((prev) => {
@@ -259,6 +286,15 @@ export default function Services() {
     navigate('/request');
   };
 
+  const scrollToCart = () => {
+    cartSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const handleQuickCompleteFromCard = (row: ProviderRow) => {
+    handleAddToCart(row);
+    setTimeout(scrollToCart, 50);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 py-12">
       <div className="container mx-auto px-4">
@@ -367,6 +403,77 @@ export default function Services() {
           {t('services.results.showing', { count: filteredProviders.length })}
         </p>
 
+        <section ref={cartSectionRef} className="mb-6 rounded-xl border border-purple-200 bg-white shadow-sm">
+          <div className="p-3 border-b border-gray-100 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <ShoppingCart className="size-4 text-purple-700" />
+              <p className="text-sm font-semibold text-gray-900">Services Cart ({cartItems.length})</p>
+            </div>
+            <p className="text-sm font-bold text-purple-700">EUR {cartTotal.toLocaleString()}</p>
+          </div>
+          {cartItems.length === 0 ? (
+            <p className="p-3 text-sm text-gray-600">Add services from the list below.</p>
+          ) : (
+            <div className="max-h-52 overflow-auto p-3 space-y-2">
+              {cartItems.map((item) => (
+                <div key={`${item.row.serviceId}-${item.row.providerId}`} className="rounded-lg border border-gray-200 p-2.5">
+                  <p className="text-sm font-medium text-gray-900">{item.row.providerName}</p>
+                  <p className="text-xs text-gray-600">{item.row.serviceName}</p>
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    {item.row.serviceCategory === 'catering' ? (
+                      <p className="text-xs text-gray-500">Catering uses guests on request form.</p>
+                    ) : (
+                      <input
+                        type="number"
+                        min={1}
+                        max={20}
+                        value={item.quantity}
+                        onChange={(e) =>
+                          handleChangeQuantity(
+                            item.row.providerId,
+                            item.row.serviceId,
+                            Number.parseInt(e.target.value || '1', 10)
+                          )
+                        }
+                        className="w-20 rounded border border-gray-300 px-2 py-1 text-sm"
+                      />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveFromCart(item.row.providerId, item.row.serviceId)}
+                      className="inline-flex items-center gap-1 rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                    >
+                      <Trash2 className="size-3.5" />
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="p-3 border-t border-gray-100">
+            <button
+              type="button"
+              onClick={handleCompleteServiceBooking}
+              disabled={cartItems.length === 0 || isBookingBlockedForRole}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 text-white py-2.5 text-sm font-semibold hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+            >
+              {isBookingBlockedForRole ? 'Customers only' : 'Complete booking'}
+              <ArrowRight className="size-4" />
+            </button>
+          </div>
+        </section>
+
+        <div className="mb-4 flex justify-end">
+          <button
+            type="button"
+            onClick={scrollToCart}
+            className="rounded-lg border border-purple-300 bg-white px-3 py-2 text-sm font-medium text-purple-700 hover:bg-purple-50"
+          >
+            Go to cart
+          </button>
+        </div>
+
         {filteredProviders.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
             {filteredProviders.map((row) => (
@@ -389,7 +496,7 @@ export default function Services() {
                     </span>
                   ))}
                 </div>
-                <div className="mt-4 grid grid-cols-2 gap-2">
+                <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => handleOpenDetails(row)}
@@ -404,6 +511,14 @@ export default function Services() {
                     className="rounded-lg bg-purple-600 text-white py-2.5 text-sm font-medium hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
                   >
                     {isBookingBlockedForRole ? 'Nur Ansicht (Vendor/Admin)' : 'Add to cart'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickCompleteFromCard(row)}
+                    disabled={isBookingBlockedForRole}
+                    className="rounded-lg border border-purple-300 text-purple-700 py-2.5 text-sm font-medium hover:bg-purple-50 transition-colors disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-300"
+                  >
+                    {isBookingBlockedForRole ? 'Customers only' : 'Complete booking'}
                   </button>
                 </div>
                 <button
@@ -447,67 +562,6 @@ export default function Services() {
             </div>
           )}
         </section>
-      </div>
-
-      <div className="fixed z-40 right-4 bottom-4 w-[min(92vw,380px)] rounded-xl border border-purple-200 bg-white shadow-xl">
-        <div className="p-3 border-b border-gray-100 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <ShoppingCart className="size-4 text-purple-700" />
-            <p className="text-sm font-semibold text-gray-900">Services Cart ({cartItems.length})</p>
-          </div>
-          <p className="text-sm font-bold text-purple-700">EUR {cartTotal.toLocaleString()}</p>
-        </div>
-        {cartItems.length === 0 ? (
-          <p className="p-3 text-sm text-gray-600">Add services from the list above.</p>
-        ) : (
-          <div className="max-h-52 overflow-auto p-3 space-y-2">
-            {cartItems.map((item) => (
-              <div key={`${item.row.serviceId}-${item.row.providerId}`} className="rounded-lg border border-gray-200 p-2.5">
-                <p className="text-sm font-medium text-gray-900">{item.row.providerName}</p>
-                <p className="text-xs text-gray-600">{item.row.serviceName}</p>
-                <div className="mt-2 flex items-center justify-between gap-2">
-                  {item.row.serviceCategory === 'catering' ? (
-                    <p className="text-xs text-gray-500">Catering uses guests on request form.</p>
-                  ) : (
-                    <input
-                      type="number"
-                      min={1}
-                      max={20}
-                      value={item.quantity}
-                      onChange={(e) =>
-                        handleChangeQuantity(
-                          item.row.providerId,
-                          item.row.serviceId,
-                          Number.parseInt(e.target.value || '1', 10)
-                        )
-                      }
-                      className="w-20 rounded border border-gray-300 px-2 py-1 text-sm"
-                    />
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveFromCart(item.row.providerId, item.row.serviceId)}
-                    className="inline-flex items-center gap-1 rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50"
-                  >
-                    <Trash2 className="size-3.5" />
-                    Remove
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="p-3 border-t border-gray-100">
-          <button
-            type="button"
-            onClick={handleCompleteServiceBooking}
-            disabled={cartItems.length === 0 || isBookingBlockedForRole}
-            className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 text-white py-2.5 text-sm font-semibold hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-          >
-            {isBookingBlockedForRole ? 'Customers only' : 'Complete booking'}
-            <ArrowRight className="size-4" />
-          </button>
-        </div>
       </div>
 
       <Dialog open={Boolean(activeProvider)} onOpenChange={(open) => !open && handleCloseProvider()}>
