@@ -13,7 +13,9 @@ export function Header() {
   const [currentName, setCurrentName] = useState('');
   const [mobileOpen, setMobileOpen] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
+  const [headerVisible, setHeaderVisible] = useState(true);
   const languageMenuRef = useRef<HTMLDivElement | null>(null);
+  const lastScrollYRef = useRef(0);
 
   const languages = [
     { code: 'de' as const, name: 'Deutsch' },
@@ -39,6 +41,26 @@ export function Header() {
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, [languageOpen]);
 
+  useEffect(() => {
+    const onScroll = () => {
+      const currentY = window.scrollY || 0;
+      const lastY = lastScrollYRef.current;
+
+      if (currentY < 24) {
+        setHeaderVisible(true);
+      } else if (currentY > lastY + 6) {
+        setHeaderVisible(false);
+      } else if (currentY < lastY - 6) {
+        setHeaderVisible(true);
+      }
+
+      lastScrollYRef.current = currentY;
+    };
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
   const accountHref =
     currentRole === 'vendor' ? '/vendor-portfolio' : currentRole === 'admin' ? '/admin' : '/customer-portfolio';
 
@@ -55,7 +77,11 @@ export function Header() {
   };
 
   return (
-    <header className="bg-white border-b sticky top-0 z-50">
+    <header
+      className={`bg-white border-b sticky top-0 z-50 transition-transform duration-300 ${
+        headerVisible ? 'translate-y-0' : '-translate-y-full'
+      }`}
+    >
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
