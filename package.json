@@ -7,6 +7,7 @@
     "build": "vite build",
     "dev": "vite",
     "dev:api": "node backend/server.mjs",
+    "test:api:integration": "node scripts/api-integration-check.mjs",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
     "prisma:studio": "prisma studio"

@@ -11,10 +11,11 @@ import nodemailer from 'nodemailer';
 const prisma = new PrismaClient();
 const PORT = Number(process.env.PORT || process.env.API_PORT || 4000);
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'http://localhost:5173';
-const ADMIN_DASHBOARD_KEY = process.env.ADMIN_DASHBOARD_KEY || 'change-me-admin-key';
-const ADMIN_SETUP_KEY = process.env.ADMIN_SETUP_KEY || 'change-me-setup-key';
-const JWT_SECRET = process.env.JWT_SECRET || 'change-me-jwt-secret';
+const ADMIN_DASHBOARD_KEY = process.env.ADMIN_DASHBOARD_KEY || '';
+const ADMIN_SETUP_KEY = process.env.ADMIN_SETUP_KEY || '';
+const JWT_SECRET = process.env.JWT_SECRET || '';
 const ADMIN_TOKEN_TTL = process.env.ADMIN_TOKEN_TTL || '12h';
+const USER_TOKEN_TTL = process.env.USER_TOKEN_TTL || '30d';
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
 const STRIPE_PLATFORM_COMMISSION_PERCENT = Number(process.env.STRIPE_PLATFORM_COMMISSION_PERCENT || 15);
@@ -33,8 +34,17 @@ const SMTP_USER = process.env.SMTP_USER || '';
 const SMTP_PASS = process.env.SMTP_PASS || '';
 const SMTP_FROM = process.env.SMTP_FROM || '';
 const ADMIN_NOTIFY_EMAIL = process.env.ADMIN_NOTIFY_EMAIL || '';
+const BOOKING_FLOW_MODE = String(process.env.BOOKING_FLOW_MODE || 'both').toLowerCase();
 const DEFAULT_RESPONSE_HOURS = 48;
 const MAX_RESPONSE_HOURS = 168;
+const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60_000);
+const rateLimitStore = new Map();
+const RATE_LIMITS = {
+  auth: { max: Number(process.env.RATE_LIMIT_AUTH_MAX || 30), windowMs: RATE_LIMIT_WINDOW_MS },
+  admin: { max: Number(process.env.RATE_LIMIT_ADMIN_MAX || 20), windowMs: RATE_LIMIT_WINDOW_MS },
+  payment: { max: Number(process.env.RATE_LIMIT_PAYMENT_MAX || 60), windowMs: RATE_LIMIT_WINDOW_MS },
+  webhook: { max: Number(process.env.RATE_LIMIT_WEBHOOK_MAX || 180), windowMs: RATE_LIMIT_WINDOW_MS },
+};
 const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY) : null;
 const mailTransporter =
   SMTP_HOST && SMTP_USER && SMTP_PASS
@@ -56,6 +66,21 @@ const r2Client =
         },
       })
     : null;
+
+const REQUIRED_SECRETS = [
+  ['JWT_SECRET', JWT_SECRET],
+  ['ADMIN_SETUP_KEY', ADMIN_SETUP_KEY],
+  ['ADMIN_DASHBOARD_KEY', ADMIN_DASHBOARD_KEY],
+];
+const missingSecrets = REQUIRED_SECRETS.filter(([, value]) => !String(value || '').trim()).map(([key]) => key);
+if (missingSecrets.length > 0) {
+  console.error(`Missing required env vars: ${missingSecrets.join(', ')}`);
+  process.exit(1);
+}
+if (!['legacy', 'structured', 'both'].includes(BOOKING_FLOW_MODE)) {
+  console.error('Invalid BOOKING_FLOW_MODE. Use one of: legacy, structured, both');
+  process.exit(1);
+}
 
 function sendJson(res, status, data) {
   res.writeHead(status, {
@@ -113,6 +138,9 @@ function withCors(req, res) {
 }
 
 function isAdminAuthorized(req) {
+  const payload = getJwtPayload(req);
+  if (payload?.role === 'admin') return true;
+
   const authHeader = req.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
   if (token) {
@@ -141,6 +169,79 @@ function signAdminToken(adminUser) {
     JWT_SECRET,
     { expiresIn: ADMIN_TOKEN_TTL },
   );
+}
+
+function signUserToken(user) {
+  return jwt.sign(
+    {
+      sub: user.id,
+      role: user.role,
+      email: user.email,
+      name: user.name,
+    },
+    JWT_SECRET,
+    { expiresIn: USER_TOKEN_TTL },
+  );
+}
+
+function getJwtPayload(req) {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if (!token) return null;
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    if (!payload || typeof payload !== 'object') return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function requireJwt(req, ...roles) {
+  const payload = getJwtPayload(req);
+  if (!payload) throw httpError(401, 'Unauthorized');
+  if (roles.length > 0 && !roles.includes(payload.role)) {
+    throw httpError(403, 'Forbidden');
+  }
+  return payload;
+}
+
+function getClientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+  if (raw) return String(raw).split(',')[0].trim();
+  return String(req.socket?.remoteAddress || 'unknown');
+}
+
+function enforceRateLimit(req, res, scope) {
+  const cfg = RATE_LIMITS[scope];
+  const now = Date.now();
+  const key = `${scope}:${getClientIp(req)}`;
+  const existing = rateLimitStore.get(key);
+  if (!existing || now - existing.windowStart > cfg.windowMs) {
+    rateLimitStore.set(key, { windowStart: now, count: 1 });
+    return false;
+  }
+  existing.count += 1;
+  if (existing.count > cfg.max) {
+    const retryAfter = Math.ceil((cfg.windowMs - (now - existing.windowStart)) / 1000);
+    res.setHeader('Retry-After', String(Math.max(1, retryAfter)));
+    sendJson(res, 429, { error: 'Too many requests, please try again shortly.' });
+    return true;
+  }
+  return false;
+}
+
+function ensureStructuredFlowEnabled() {
+  if (BOOKING_FLOW_MODE === 'legacy') {
+    throw httpError(409, 'Structured booking flow is disabled by configuration');
+  }
+}
+
+function ensureLegacyFlowEnabled() {
+  if (BOOKING_FLOW_MODE === 'structured') {
+    throw httpError(409, 'Legacy booking flow is disabled by configuration');
+  }
 }
 
 function serializeRequest(request) {
@@ -551,6 +652,7 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/api/payments/webhook') {
+      if (enforceRateLimit(req, res, 'webhook')) return;
       if (!stripe || !STRIPE_WEBHOOK_SECRET) {
         return sendJson(res, 400, { error: 'Stripe webhook is not configured' });
       }
@@ -636,6 +738,9 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/api/payments/checkout-session') {
+      ensureLegacyFlowEnabled();
+      if (enforceRateLimit(req, res, 'payment')) return;
+      const auth = requireJwt(req, 'customer');
       if (!stripe) {
         return sendJson(res, 400, { error: 'Stripe is not configured' });
       }
@@ -652,6 +757,9 @@ createServer(async (req, res) => {
       if (!request) return sendJson(res, 404, { error: 'Request not found' });
       if (request.customerEmail.toLowerCase() !== String(customerEmail).toLowerCase()) {
         return sendJson(res, 403, { error: 'Customer email does not match request' });
+      }
+      if (request.customerEmail.toLowerCase() !== String(auth.email || '').toLowerCase()) {
+        return sendJson(res, 403, { error: 'Token customer does not match request customer' });
       }
 
       const offer = request.offers.find((o) => o.id === offerId);
@@ -800,6 +908,7 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/api/auth/google/vendor/verify') {
+      if (enforceRateLimit(req, res, 'auth')) return;
       const body = await readBody(req);
       const { idToken } = body;
       if (!idToken) return sendJson(res, 400, { error: 'Missing idToken' });
@@ -817,6 +926,7 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/api/auth/google/customer/login') {
+      if (enforceRateLimit(req, res, 'auth')) return;
       const body = await readBody(req);
       const { idToken } = body;
       if (!idToken) return sendJson(res, 400, { error: 'Missing idToken' });
@@ -851,12 +961,14 @@ createServer(async (req, res) => {
       }
 
       return sendJson(res, 200, {
+        token: signUserToken(customer),
         role: 'customer',
         user: { id: customer.id, name: customer.name, email: customer.email },
       });
     }
 
     if (req.method === 'POST' && path === '/api/auth/google/vendor/login') {
+      if (enforceRateLimit(req, res, 'auth')) return;
       const body = await readBody(req);
       const { idToken } = body;
       if (!idToken) return sendJson(res, 400, { error: 'Missing idToken' });
@@ -875,7 +987,9 @@ createServer(async (req, res) => {
         return sendJson(res, 404, { error: 'No vendor application found for this Google account' });
       }
 
+      const { user } = await prisma.$transaction(async (tx) => ensureVendorIdentityFromApplication(tx, vendor));
       return sendJson(res, 200, {
+        token: signUserToken(user),
         role: 'vendor',
         user: { id: vendor.id, name: vendor.businessName, email: vendor.email, status: vendor.status },
       });
@@ -902,6 +1016,7 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/api/admin/bootstrap') {
+      if (enforceRateLimit(req, res, 'admin')) return;
       const setupHeader = req.headers['x-admin-setup-key'];
       const setupKey = Array.isArray(setupHeader) ? setupHeader[0] : setupHeader;
       if (setupKey !== ADMIN_SETUP_KEY) {
@@ -937,6 +1052,7 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/api/admin/login') {
+      if (enforceRateLimit(req, res, 'admin')) return;
       const body = await readBody(req);
       const { email, password } = body;
       if (!email || !password) return sendJson(res, 400, { error: 'Missing credentials' });
@@ -1020,6 +1136,7 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/api/auth/signup/vendor') {
+      if (enforceRateLimit(req, res, 'auth')) return;
       const body = await readBody(req);
       const required = ['businessName', 'contactName', 'email'];
       if (required.some((field) => !body[field])) {
@@ -1084,6 +1201,8 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/api/marketplace/bookings/request') {
+      ensureStructuredFlowEnabled();
+      const auth = requireJwt(req, 'customer');
       const body = await readBody(req);
       const customerEmail = String(body.customerEmail || '').trim();
       const customerName = String(body.customerName || '').trim();
@@ -1094,6 +1213,9 @@ createServer(async (req, res) => {
 
       if (!customerEmail || !customerName || !eventDate || itemsInput.length === 0) {
         return sendJson(res, 400, { error: 'Missing required fields (customerEmail, customerName, eventDate, items)' });
+      }
+      if (String(auth.email || '').toLowerCase() !== customerEmail.toLowerCase()) {
+        return sendJson(res, 403, { error: 'Customer email must match authenticated user' });
       }
 
       const result = await prisma.$transaction(async (tx) => {
@@ -1217,6 +1339,8 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path.match(/^\/api\/bookings\/[^/]+\/items\/[^/]+\/offer$/)) {
+      ensureStructuredFlowEnabled();
+      const auth = requireJwt(req, 'customer', 'vendor');
       const [, , , bookingId, , itemId] = path.split('/');
       const body = await readBody(req);
       const priceCents = toPositiveInt(body.priceCents, 'priceCents');
@@ -1252,24 +1376,18 @@ createServer(async (req, res) => {
           orderBy: { createdAt: 'desc' },
         });
 
-        const customerEmail = normalizeOptionalString(body.customerEmail, 320);
-        const vendorEmail = normalizeOptionalString(body.vendorEmail, 320);
-        if ((customerEmail && vendorEmail) || (!customerEmail && !vendorEmail)) {
-          throw httpError(400, 'Provide exactly one actor email: customerEmail or vendorEmail');
-        }
-
         let actorRole = 'customer';
         let actorVendorId = null;
-        if (customerEmail) {
+        if (auth.role === 'customer') {
           const customer = await tx.user.findFirst({
-            where: { email: { equals: customerEmail, mode: 'insensitive' }, role: 'customer' },
+            where: { id: String(auth.sub), role: 'customer' },
           });
           if (!customer) throw httpError(404, 'Customer not found');
           if (customer.id !== booking.customerId) throw httpError(403, 'Not your booking');
           actorRole = 'customer';
         } else {
           const app = await tx.vendorApplication.findFirst({
-            where: { email: { equals: vendorEmail, mode: 'insensitive' } },
+            where: { email: { equals: String(auth.email || ''), mode: 'insensitive' } },
           });
           if (!app) throw httpError(404, 'Vendor account not found');
           const { vendorProfile } = await ensureVendorIdentityFromApplication(tx, app);
@@ -1319,6 +1437,8 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path.match(/^\/api\/bookings\/[^/]+\/items\/[^/]+\/accept$/)) {
+      ensureStructuredFlowEnabled();
+      const auth = requireJwt(req, 'customer', 'vendor');
       const [, , , bookingId, , itemId] = path.split('/');
       const body = await readBody(req);
       const offerVersion = toPositiveInt(body.offerVersion, 'offerVersion');
@@ -1345,17 +1465,11 @@ createServer(async (req, res) => {
           throw httpError(409, 'Offer updated, please review latest.');
         }
 
-        const customerEmail = normalizeOptionalString(body.customerEmail, 320);
-        const vendorEmail = normalizeOptionalString(body.vendorEmail, 320);
-        if ((customerEmail && vendorEmail) || (!customerEmail && !vendorEmail)) {
-          throw httpError(400, 'Provide exactly one actor email: customerEmail or vendorEmail');
-        }
-
         let actorRole = 'customer';
         let actorVendorId = null;
-        if (customerEmail) {
+        if (auth.role === 'customer') {
           const customer = await tx.user.findFirst({
-            where: { email: { equals: customerEmail, mode: 'insensitive' }, role: 'customer' },
+            where: { id: String(auth.sub), role: 'customer' },
           });
           if (!customer) throw httpError(404, 'Customer not found');
           if (customer.id !== booking.customerId) throw httpError(403, 'Not your booking');
@@ -1365,7 +1479,7 @@ createServer(async (req, res) => {
           actorRole = 'customer';
         } else {
           const app = await tx.vendorApplication.findFirst({
-            where: { email: { equals: vendorEmail, mode: 'insensitive' } },
+            where: { email: { equals: String(auth.email || ''), mode: 'insensitive' } },
           });
           if (!app) throw httpError(404, 'Vendor account not found');
           const { vendorProfile } = await ensureVendorIdentityFromApplication(tx, app);
@@ -1413,6 +1527,8 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path.match(/^\/api\/bookings\/[^/]+\/items\/[^/]+\/decline$/)) {
+      ensureStructuredFlowEnabled();
+      const auth = requireJwt(req, 'customer', 'vendor');
       const [, , , bookingId, , itemId] = path.split('/');
       const body = await readBody(req);
       const reason = normalizeOptionalString(body.reason, 400);
@@ -1438,24 +1554,18 @@ createServer(async (req, res) => {
           throw httpError(400, `Item already ${item.status}`);
         }
 
-        const customerEmail = normalizeOptionalString(body.customerEmail, 320);
-        const vendorEmail = normalizeOptionalString(body.vendorEmail, 320);
-        if ((customerEmail && vendorEmail) || (!customerEmail && !vendorEmail)) {
-          throw httpError(400, 'Provide exactly one actor email: customerEmail or vendorEmail');
-        }
-
         let actorRole = 'customer';
         let actorVendorId = null;
-        if (customerEmail) {
+        if (auth.role === 'customer') {
           const customer = await tx.user.findFirst({
-            where: { email: { equals: customerEmail, mode: 'insensitive' }, role: 'customer' },
+            where: { id: String(auth.sub), role: 'customer' },
           });
           if (!customer) throw httpError(404, 'Customer not found');
           if (customer.id !== booking.customerId) throw httpError(403, 'Not your booking');
           actorRole = 'customer';
         } else {
           const app = await tx.vendorApplication.findFirst({
-            where: { email: { equals: vendorEmail, mode: 'insensitive' } },
+            where: { email: { equals: String(auth.email || ''), mode: 'insensitive' } },
           });
           if (!app) throw httpError(404, 'Vendor account not found');
           const { vendorProfile } = await ensureVendorIdentityFromApplication(tx, app);
@@ -1510,10 +1620,10 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && path.match(/^\/api\/bookings\/[^/]+\/thread$/)) {
+      ensureStructuredFlowEnabled();
+      const auth = requireJwt(req, 'customer', 'vendor', 'admin');
       const bookingId = path.split('/')[3];
-      const customerEmail = normalizeOptionalString(url.searchParams.get('customerEmail'), 320);
-      const vendorEmail = normalizeOptionalString(url.searchParams.get('vendorEmail'), 320);
-      const actorRole = customerEmail ? 'customer' : vendorEmail ? 'vendor' : null;
+      const actorRole = auth.role === 'admin' ? null : auth.role;
 
       const payload = await prisma.$transaction(async (tx) => {
         await expireNegotiationsIfInactive(tx, bookingId);
@@ -1535,13 +1645,13 @@ createServer(async (req, res) => {
         let actorVendorId = null;
         if (actorRole === 'customer') {
           const customer = await tx.user.findFirst({
-            where: { email: { equals: customerEmail, mode: 'insensitive' }, role: 'customer' },
+            where: { id: String(auth.sub), role: 'customer' },
           });
           if (!customer || customer.id !== booking.customerId) throw httpError(403, 'Not allowed for this customer');
         }
         if (actorRole === 'vendor') {
           const app = await tx.vendorApplication.findFirst({
-            where: { email: { equals: vendorEmail, mode: 'insensitive' } },
+            where: { email: { equals: String(auth.email || ''), mode: 'insensitive' } },
           });
           if (!app) throw httpError(404, 'Vendor account not found');
           const { vendorProfile } = await ensureVendorIdentityFromApplication(tx, app);
@@ -1624,6 +1734,9 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path.match(/^\/api\/bookings\/[^/]+\/checkout$/)) {
+      ensureStructuredFlowEnabled();
+      if (enforceRateLimit(req, res, 'payment')) return;
+      const auth = requireJwt(req, 'customer');
       if (!stripe) return sendJson(res, 400, { error: 'Stripe is not configured' });
       const bookingId = path.split('/')[3];
       const body = await readBody(req);
@@ -1642,6 +1755,9 @@ createServer(async (req, res) => {
         if (!booking) throw httpError(404, 'Booking not found');
         if (booking.customer.email.toLowerCase() !== customerEmail.toLowerCase()) {
           throw httpError(403, 'Not allowed for this booking');
+        }
+        if (booking.customer.email.toLowerCase() !== String(auth.email || '').toLowerCase()) {
+          throw httpError(403, 'Token customer does not match booking customer');
         }
         if (booking.status !== 'accepted') throw httpError(400, 'Booking must be ACCEPTED before checkout');
         if (!booking.items.every((item) => item.status === 'agreed')) {
@@ -1708,12 +1824,17 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path.match(/^\/api\/marketplace\/bookings\/[^/]+\/vendor-decision$/)) {
+      ensureStructuredFlowEnabled();
+      const auth = requireJwt(req, 'vendor');
       const bookingId = path.split('/')[4];
       const body = await readBody(req);
       const vendorEmail = String(body.vendorEmail || '').trim();
       const decisions = Array.isArray(body.decisions) ? body.decisions : [];
       if (!vendorEmail || decisions.length === 0) {
         return sendJson(res, 400, { error: 'vendorEmail and decisions are required' });
+      }
+      if (vendorEmail.toLowerCase() !== String(auth.email || '').toLowerCase()) {
+        return sendJson(res, 403, { error: 'vendorEmail must match authenticated vendor' });
       }
 
       const updatedBooking = await prisma.$transaction(async (tx) => {
@@ -1836,6 +1957,7 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/api/marketplace/bookings/expire') {
+      ensureStructuredFlowEnabled();
       const now = new Date();
       const expired = await prisma.$transaction(async (tx) => {
         const bookings = await tx.booking.findMany({
@@ -1866,6 +1988,8 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/api/marketplace/reviews') {
+      ensureStructuredFlowEnabled();
+      const auth = requireJwt(req, 'customer');
       const body = await readBody(req);
       const bookingId = String(body.bookingId || '').trim();
       const serviceId = String(body.serviceId || '').trim();
@@ -1873,6 +1997,9 @@ createServer(async (req, res) => {
       const rating = Number(body.rating);
       if (!bookingId || !serviceId || !customerEmail || !Number.isFinite(rating)) {
         return sendJson(res, 400, { error: 'bookingId, serviceId, customerEmail, rating are required' });
+      }
+      if (customerEmail.toLowerCase() !== String(auth.email || '').toLowerCase()) {
+        return sendJson(res, 403, { error: 'customerEmail must match authenticated user' });
       }
       if (rating < 1 || rating > 5) return sendJson(res, 400, { error: 'rating must be between 1 and 5' });
 
@@ -1937,10 +2064,15 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/api/requests') {
+      ensureLegacyFlowEnabled();
+      const auth = requireJwt(req, 'customer');
       const body = await readBody(req);
       const { customerName, customerEmail, selectedServices, budget } = body;
       if (!customerName || !customerEmail || !Array.isArray(selectedServices) || selectedServices.length === 0 || !budget) {
         return sendJson(res, 400, { error: 'Missing required fields' });
+      }
+      if (customerEmail.toLowerCase() !== String(auth.email || '').toLowerCase()) {
+        return sendJson(res, 403, { error: 'customerEmail must match authenticated user' });
       }
       const offerResponseHours = normalizeResponseHours(body.offerResponseHours);
       const expiresAt = new Date(Date.now() + offerResponseHours * 60 * 60 * 1000);
@@ -1965,6 +2097,7 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && path === '/api/requests/open') {
+      ensureLegacyFlowEnabled();
       await expireStaleRequests();
       const requests = await prisma.serviceRequest.findMany({
         where: { status: 'open' },
@@ -1975,8 +2108,13 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && path === '/api/requests') {
+      ensureLegacyFlowEnabled();
+      const auth = requireJwt(req, 'customer', 'admin');
       await expireStaleRequests();
       const email = (url.searchParams.get('customerEmail') || '').trim();
+      if (auth.role === 'customer' && email.toLowerCase() !== String(auth.email || '').toLowerCase()) {
+        return sendJson(res, 403, { error: 'You can only read your own requests' });
+      }
       const requests = await prisma.serviceRequest.findMany({
         where: email ? { customerEmail: { equals: email, mode: 'insensitive' } } : undefined,
         include: { offers: { orderBy: { createdAt: 'desc' } } },
@@ -1986,9 +2124,14 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && path === '/api/vendor/offers') {
+      ensureLegacyFlowEnabled();
+      const auth = requireJwt(req, 'vendor', 'admin');
       await expireStaleRequests();
       const vendorEmail = (url.searchParams.get('vendorEmail') || '').trim();
       if (!vendorEmail) return sendJson(res, 400, { error: 'vendorEmail is required' });
+      if (auth.role === 'vendor' && vendorEmail.toLowerCase() !== String(auth.email || '').toLowerCase()) {
+        return sendJson(res, 403, { error: 'You can only read your own vendor offers' });
+      }
 
       const offers = await prisma.vendorOffer.findMany({
         where: {
@@ -2324,6 +2467,8 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path.match(/^\/api\/requests\/[^/]+\/offers$/)) {
+      ensureLegacyFlowEnabled();
+      const auth = requireJwt(req, 'vendor');
       await expireStaleRequests();
       const requestId = path.split('/')[3];
       const body = await readBody(req);
@@ -2336,6 +2481,9 @@ createServer(async (req, res) => {
       if (!request) return sendJson(res, 404, { error: 'Request not found' });
       if (request.status !== 'open') return sendJson(res, 400, { error: 'Request is closed or expired' });
       if (body.vendorEmail) {
+        if (String(body.vendorEmail).toLowerCase() !== String(auth.email || '').toLowerCase()) {
+          return sendJson(res, 403, { error: 'vendorEmail must match authenticated vendor' });
+        }
         const vendor = await prisma.vendorApplication.findFirst({
           where: { email: { equals: body.vendorEmail, mode: 'insensitive' } },
         });
@@ -2371,11 +2519,13 @@ createServer(async (req, res) => {
     }
 
     if (req.method === 'PATCH' && path.match(/^\/api\/requests\/[^/]+\/offers\/[^/]+$/)) {
+      ensureLegacyFlowEnabled();
+      const auth = requireJwt(req, 'customer', 'admin');
       await expireStaleRequests();
       const [, , , requestId, , offerId] = path.split('/');
       const body = await readBody(req);
       const status = body.status;
-      const isAdmin = isAdminAuthorized(req);
+      const isAdmin = auth.role === 'admin' || isAdminAuthorized(req);
       if (!['accepted', 'declined', 'ignored', 'pending'].includes(status)) {
         return sendJson(res, 400, { error: 'Invalid status' });
       }
@@ -2387,6 +2537,9 @@ createServer(async (req, res) => {
         const customerEmail = (body.customerEmail || '').trim().toLowerCase();
         if (!customerEmail) {
           return sendJson(res, 401, { error: 'customerEmail is required for customer offer updates' });
+        }
+        if (customerEmail !== String(auth.email || '').toLowerCase()) {
+          return sendJson(res, 403, { error: 'Token customer mismatch' });
         }
         if (customerEmail !== request.customerEmail.toLowerCase()) {
           return sendJson(res, 403, { error: 'You can only manage offers for your own requests' });

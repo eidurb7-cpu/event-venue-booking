@@ -1,3 +1,4 @@
+import { getUserToken } from './auth';
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 
 export type ServiceRequestStatus = 'open' | 'closed' | 'expired';
@@ -209,9 +210,15 @@ async function request(path: string, options: RequestInit = {}) {
   const timeoutMs = 30000;
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
+  const userToken = getUserToken();
+  const mergedHeaders = {
+    'Content-Type': 'application/json',
+    ...(userToken ? { Authorization: `Bearer ${userToken}` } : {}),
+    ...(options.headers || {}),
+  };
   try {
     res = await fetch(`${API_BASE}${path}`, {
-      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+      headers: mergedHeaders,
       signal: controller.signal,
       ...options,
     });
@@ -262,7 +269,11 @@ export function loginVendorWithGoogle(idToken: string) {
   return request('/api/auth/google/vendor/login', {
     method: 'POST',
     body: JSON.stringify({ idToken }),
-  });
+  }) as Promise<{
+    token: string;
+    role: 'vendor';
+    user: { id: string; name: string; email: string; status?: string };
+  }>;
 }
 
 export function loginCustomerWithGoogle(idToken: string) {
@@ -270,6 +281,7 @@ export function loginCustomerWithGoogle(idToken: string) {
     method: 'POST',
     body: JSON.stringify({ idToken }),
   }) as Promise<{
+    token: string;
     role: 'customer';
     user: { id: string; name: string; email: string };
   }>;
