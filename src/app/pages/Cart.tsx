@@ -13,6 +13,13 @@ export default function Cart() {
   const { cart, total, removeService, clearCart, clearVenue } = useCart();
   const [requestSending, setRequestSending] = useState(false);
   const [savingLater, setSavingLater] = useState(false);
+  const [showCheckoutForm, setShowCheckoutForm] = useState(false);
+  const [bookingForm, setBookingForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    notes: '',
+  });
   const currentUser = getCurrentUser();
   const isBookingBlockedForRole = currentUser?.role === 'vendor' || currentUser?.role === 'admin';
 
@@ -52,6 +59,15 @@ export default function Cart() {
       return;
     }
     window.location.href = data.url;
+  }
+
+  async function submitCompleteBookingForm(e: React.FormEvent) {
+    e.preventDefault();
+    if (!bookingForm.name.trim() || !bookingForm.email.trim()) {
+      alert('Please enter name and email.');
+      return;
+    }
+    await checkout();
   }
 
   async function sendRequestToVendors() {
@@ -211,14 +227,58 @@ export default function Cart() {
             </button>
             <button
               type="button"
-              onClick={checkout}
+              onClick={() => setShowCheckoutForm((prev) => !prev)}
               disabled={total <= 0 || !cart.venue || isBookingBlockedForRole}
               className="sm:ml-auto inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
             >
-              {isBookingBlockedForRole ? 'Customers only' : 'Pay now'}
+              {isBookingBlockedForRole ? 'Customers only' : 'Complete booking'}
               <ArrowRight className="size-4" />
             </button>
           </div>
+          {showCheckoutForm && (
+            <form onSubmit={submitCompleteBookingForm} className="mt-4 rounded-lg border border-gray-200 p-4 space-y-3">
+              <p className="text-sm font-semibold text-gray-900">Complete booking</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input
+                  type="text"
+                  required
+                  placeholder="Full name"
+                  value={bookingForm.name}
+                  onChange={(e) => setBookingForm((p) => ({ ...p, name: e.target.value }))}
+                  className="rounded-lg border border-gray-300 px-3 py-2.5"
+                />
+                <input
+                  type="email"
+                  required
+                  placeholder="Email"
+                  value={bookingForm.email}
+                  onChange={(e) => setBookingForm((p) => ({ ...p, email: e.target.value }))}
+                  className="rounded-lg border border-gray-300 px-3 py-2.5"
+                />
+                <input
+                  type="tel"
+                  placeholder="Phone (optional)"
+                  value={bookingForm.phone}
+                  onChange={(e) => setBookingForm((p) => ({ ...p, phone: e.target.value }))}
+                  className="rounded-lg border border-gray-300 px-3 py-2.5"
+                />
+                <input
+                  type="text"
+                  placeholder="Short note (optional)"
+                  value={bookingForm.notes}
+                  onChange={(e) => setBookingForm((p) => ({ ...p, notes: e.target.value }))}
+                  className="rounded-lg border border-gray-300 px-3 py-2.5"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={total <= 0 || !cart.venue || isBookingBlockedForRole}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                Pay now
+              </button>
+            </form>
+          )}
         </div>
       </div>
     </div>
