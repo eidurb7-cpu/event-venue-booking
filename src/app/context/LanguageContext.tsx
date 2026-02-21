@@ -188,7 +188,25 @@ const translations: Record<Language, Record<string, string>> = {
     'auth.signup.title': 'Sign up',
     'auth.signup.subtitle': 'Erstelle ein Konto fuer Angebote und Anfragen',
     'auth.signup.button': 'Konto erstellen',
-    'auth.signup.hasAccount': 'Bereits ein Konto?'
+    'auth.signup.hasAccount': 'Bereits ein Konto?',
+    'cookies.banner.title': 'Cookie-Einstellungen',
+    'cookies.banner.description': 'Wir verwenden notwendige Cookies fuer den Betrieb. Mit deiner Zustimmung nutzen wir zusaetzlich Analyse- und Marketing-Cookies.',
+    'cookies.banner.accept': 'Alle akzeptieren',
+    'cookies.banner.reject': 'Nicht notwendige ablehnen',
+    'cookies.banner.customize': 'Anpassen',
+    'cookies.banner.hideCustomize': 'Anpassung schliessen',
+    'cookies.banner.saveSelection': 'Auswahl speichern',
+    'cookies.banner.settings': 'Cookie-Seite',
+    'cookies.settings.title': 'Cookie-Einstellungen',
+    'cookies.settings.description': 'Passe hier jederzeit deine Cookie-Praeferenzen an.',
+    'cookies.settings.alwaysOn': 'Notwendige Cookies sind immer aktiv.',
+    'cookies.settings.save': 'Speichern',
+    'cookies.settings.saved': 'Cookie-Auswahl gespeichert.',
+    'cookies.settings.backHome': 'Zurueck zur Startseite',
+    'cookies.category.necessary': 'Notwendig',
+    'cookies.category.preferences': 'Praeferenzen',
+    'cookies.category.analytics': 'Analyse',
+    'cookies.category.marketing': 'Marketing'
   },
   en: {
     'nav.home': 'Home',
@@ -365,7 +383,25 @@ const translations: Record<Language, Record<string, string>> = {
     'auth.signup.title': 'Sign Up',
     'auth.signup.subtitle': 'Create an account for offers and requests',
     'auth.signup.button': 'Create Account',
-    'auth.signup.hasAccount': 'Already have an account?'
+    'auth.signup.hasAccount': 'Already have an account?',
+    'cookies.banner.title': 'Cookie Settings',
+    'cookies.banner.description': 'We use necessary cookies to run this site. With your consent, we also use analytics and marketing cookies.',
+    'cookies.banner.accept': 'Accept all',
+    'cookies.banner.reject': 'Reject non-essential',
+    'cookies.banner.customize': 'Customize',
+    'cookies.banner.hideCustomize': 'Close customize',
+    'cookies.banner.saveSelection': 'Save selection',
+    'cookies.banner.settings': 'Cookie page',
+    'cookies.settings.title': 'Cookie Settings',
+    'cookies.settings.description': 'You can update your cookie preferences here at any time.',
+    'cookies.settings.alwaysOn': 'Necessary cookies are always on.',
+    'cookies.settings.save': 'Save',
+    'cookies.settings.saved': 'Cookie settings saved.',
+    'cookies.settings.backHome': 'Back to home',
+    'cookies.category.necessary': 'Necessary',
+    'cookies.category.preferences': 'Preferences',
+    'cookies.category.analytics': 'Analytics',
+    'cookies.category.marketing': 'Marketing'
   }
 };
 

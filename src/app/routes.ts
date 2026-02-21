@@ -13,6 +13,7 @@ import Signup from './pages/Signup';
 import AdminDashboard from './pages/AdminDashboard';
 import Invoices from './pages/Invoices';
 import InvoiceDetail from './pages/InvoiceDetail';
+import CookieSettings from './pages/CookieSettings';
 import NotFound from './pages/NotFound';
 import RouteError from './pages/RouteError';
 
@@ -33,6 +34,7 @@ export const router = createBrowserRouter([
       { path: 'admin', Component: AdminDashboard },
       { path: 'invoices', Component: Invoices },
       { path: 'invoice/:invoiceId', Component: InvoiceDetail },
+      { path: 'cookies', Component: CookieSettings },
       { path: 'venue/:id', Component: VenueDetail },
       { path: 'booking', Component: Booking },
       { path: '*', Component: NotFound },

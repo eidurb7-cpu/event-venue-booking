@@ -190,6 +190,12 @@ function normalizeResponseHours(input) {
   return Math.min(MAX_RESPONSE_HOURS, Math.max(1, Math.round(hours)));
 }
 
+function normalizeOptionalString(input, maxLength = 255) {
+  const value = String(input || '').trim();
+  if (!value) return null;
+  return value.slice(0, maxLength);
+}
+
 function httpError(status, message) {
   const err = new Error(message);
   err.status = status;
@@ -665,6 +671,64 @@ createServer(async (req, res) => {
 
     if (path.startsWith('/api/admin') && !['/api/admin/login', '/api/admin/bootstrap'].includes(path) && !isAdminAuthorized(req)) {
       return sendJson(res, 401, { error: 'Unauthorized admin access' });
+    }
+
+    if (req.method === 'POST' && path === '/api/consent') {
+      const body = await readBody(req);
+      const {
+        v,
+        ts,
+        preferences,
+        analytics,
+        marketing,
+        sessionId,
+        userEmail,
+      } = body;
+
+      if (
+        typeof preferences !== 'boolean' ||
+        typeof analytics !== 'boolean' ||
+        typeof marketing !== 'boolean'
+      ) {
+        return sendJson(res, 400, { error: 'Invalid consent payload' });
+      }
+
+      const version = Number(v);
+      if (!Number.isInteger(version) || version < 1) {
+        return sendJson(res, 400, { error: 'Invalid consent version' });
+      }
+
+      let linkedUserId = null;
+      const normalizedEmail = normalizeOptionalString(userEmail, 320);
+      if (normalizedEmail) {
+        const linkedUser = await prisma.user.findFirst({
+          where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
+          select: { id: true },
+        });
+        linkedUserId = linkedUser?.id || null;
+      }
+
+      let createdAt = new Date();
+      if (Number.isFinite(Number(ts))) {
+        const fromClient = new Date(Number(ts));
+        if (!Number.isNaN(fromClient.getTime())) createdAt = fromClient;
+      }
+
+      await prisma.consentLog.create({
+        data: {
+          userId: linkedUserId,
+          sessionId: normalizeOptionalString(sessionId, 120),
+          version,
+          necessary: true,
+          preferences,
+          analytics,
+          marketing,
+          userAgent: normalizeOptionalString(req.headers['user-agent'], 512),
+          createdAt,
+        },
+      });
+
+      return sendJson(res, 200, { ok: true });
     }
 
     if (req.method === 'POST' && path === '/api/auth/signup/customer') {

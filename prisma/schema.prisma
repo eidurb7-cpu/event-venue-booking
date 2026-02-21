@@ -108,6 +108,7 @@ model User {
   customerBookings Booking[]         @relation("BookingCustomer")
   reviews          Review[]
   analyticsEvents  AnalyticsEvent[]
+  consentLogs      ConsentLog[]
 }
 
 model VendorApplication {
@@ -407,4 +408,22 @@ model VendorDailyStat {
 
   @@unique([vendorId, date])
   @@index([date])
+}
+
+model ConsentLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sessionId   String?
+  version     Int
+  necessary   Boolean  @default(true)
+  preferences Boolean  @default(false)
+  analytics   Boolean  @default(false)
+  marketing   Boolean  @default(false)
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([sessionId, createdAt])
+  @@index([createdAt])
 }
