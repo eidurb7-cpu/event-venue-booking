@@ -473,6 +473,39 @@ export function getAdminVendorApplications(adminKey: string) {
   }) as Promise<{ applications: VendorApplication[] }>;
 }
 
+export interface AdminVendorComplianceRow {
+  id: string;
+  vendorId: string;
+  vendorEmail: string;
+  vendorName: string;
+  contractAccepted: boolean;
+  contractAcceptedAt?: string | null;
+  contractVersion?: string | null;
+  contractAcceptedByUserId?: string | null;
+  contractAcceptedIP?: string | null;
+  trainingCompleted: boolean;
+  trainingCompletedAt?: string | null;
+  connectOnboardingStatus?: string;
+  payoutsEnabled?: boolean;
+  chargesEnabled?: boolean;
+  updatedAt?: string | null;
+  createdAt: string;
+}
+
+export function getAdminVendorCompliance(adminKey: string) {
+  return request('/api/admin/vendor-compliance', {
+    method: 'GET',
+    headers: withAdminToken(adminKey),
+  }) as Promise<{ compliances: AdminVendorComplianceRow[]; note?: string }>;
+}
+
+export function backfillAdminVendorCompliance(adminKey: string) {
+  return request('/api/admin/vendor-compliance/backfill', {
+    method: 'POST',
+    headers: withAdminToken(adminKey),
+  }) as Promise<{ migrated: number; total: number; note?: string }>;
+}
+
 export function updateVendorApplicationStatus(
   adminKey: string,
   applicationId: string,

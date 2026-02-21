@@ -39,6 +39,7 @@ const ADMIN_NOTIFY_EMAIL = process.env.ADMIN_NOTIFY_EMAIL || '';
 const BOOKING_FLOW_MODE = String(process.env.BOOKING_FLOW_MODE || 'both').toLowerCase();
 const VENDOR_CONTRACT_VERSION = process.env.VENDOR_CONTRACT_VERSION || 'v1.0';
 const VENDOR_COMPLIANCE_FILE = process.env.VENDOR_COMPLIANCE_FILE || path.join(process.cwd(), 'backend', 'data', 'vendor-compliance.json');
+const ENABLE_LEGACY_COMPLIANCE_JSON = String(process.env.ENABLE_LEGACY_COMPLIANCE_JSON || 'true').toLowerCase() !== 'false';
 const SERVICE_AGREEMENT_VERSION = process.env.SERVICE_AGREEMENT_VERSION || 'v1.0';
 const SERVICE_AGREEMENT_FILE = process.env.SERVICE_AGREEMENT_FILE || path.join(process.cwd(), 'backend', 'data', 'service-agreements.json');
 const ENFORCE_VENDOR_PAYOUT_READINESS = String(process.env.ENFORCE_VENDOR_PAYOUT_READINESS || 'true').toLowerCase() !== 'false';
@@ -372,6 +373,7 @@ function defaultVendorCompliance() {
 }
 
 async function readVendorComplianceStore() {
+  if (!ENABLE_LEGACY_COMPLIANCE_JSON) return { vendors: {} };
   try {
     const raw = await fs.readFile(VENDOR_COMPLIANCE_FILE, 'utf8');
     const parsed = JSON.parse(raw);
@@ -385,8 +387,58 @@ async function readVendorComplianceStore() {
 }
 
 async function writeVendorComplianceStore(store) {
+  if (!ENABLE_LEGACY_COMPLIANCE_JSON) return;
   await fs.mkdir(path.dirname(VENDOR_COMPLIANCE_FILE), { recursive: true });
   await fs.writeFile(VENDOR_COMPLIANCE_FILE, JSON.stringify(store, null, 2), 'utf8');
+}
+
+function mapComplianceRowToPayload(row) {
+  return {
+    contractAccepted: Boolean(row.contractAccepted),
+    contractAcceptedAt: row.contractAcceptedAt ? new Date(row.contractAcceptedAt).toISOString() : null,
+    contractVersion: row.contractVersionAccepted || null,
+    contractAcceptedByUserId: row.contractAcceptedByUserId || null,
+    contractAcceptedIP: row.contractAcceptedIP || null,
+    trainingCompleted: Boolean(row.trainingCompleted),
+    trainingCompletedAt: row.trainingCompletedAt ? new Date(row.trainingCompletedAt).toISOString() : null,
+    connectOnboardingStatus: row.connectOnboardingStatus || 'NOT_STARTED',
+    payoutsEnabled: Boolean(row.payoutsEnabled),
+    chargesEnabled: Boolean(row.chargesEnabled),
+    updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+  };
+}
+
+function mapCompliancePayloadToRow(payload) {
+  return {
+    contractAccepted: Boolean(payload.contractAccepted),
+    contractAcceptedAt: payload.contractAcceptedAt ? new Date(payload.contractAcceptedAt) : null,
+    contractVersionAccepted: payload.contractVersion || null,
+    contractAcceptedByUserId: payload.contractAcceptedByUserId || null,
+    contractAcceptedIP: payload.contractAcceptedIP || null,
+    trainingCompleted: Boolean(payload.trainingCompleted),
+    trainingCompletedAt: payload.trainingCompletedAt ? new Date(payload.trainingCompletedAt) : null,
+    connectOnboardingStatus: String(payload.connectOnboardingStatus || 'NOT_STARTED'),
+    payoutsEnabled: Boolean(payload.payoutsEnabled),
+    chargesEnabled: Boolean(payload.chargesEnabled),
+  };
+}
+
+async function upsertVendorComplianceByEmail(vendorEmail, payload) {
+  if (!supportsPrismaModel('vendorCompliance')) return false;
+  const app = await getVendorApplicationByEmail(vendorEmail);
+  if (!app) return false;
+  await prisma.$transaction(async (tx) => {
+    const { vendorProfile } = await ensureVendorIdentityFromApplication(tx, app);
+    await tx.vendorCompliance.upsert({
+      where: { vendorId: vendorProfile.id },
+      update: mapCompliancePayloadToRow(payload),
+      create: {
+        vendorId: vendorProfile.id,
+        ...mapCompliancePayloadToRow(payload),
+      },
+    });
+  });
+  return true;
 }
 
 async function getVendorCompliance(vendorEmail) {
@@ -407,20 +459,20 @@ async function getVendorCompliance(vendorEmail) {
     const row = await prisma.vendorCompliance.findUnique({
       where: { vendorId: profile.id },
     });
-    if (!row) return fallback;
+    if (!row) {
+      if (ENABLE_LEGACY_COMPLIANCE_JSON && store.vendors[key]) {
+        await upsertVendorComplianceByEmail(vendorEmail, fallback);
+        const migrated = await prisma.vendorCompliance.findUnique({
+          where: { vendorId: profile.id },
+        });
+        if (migrated) return { ...fallback, ...mapComplianceRowToPayload(migrated) };
+      }
+      return fallback;
+    }
     return {
       ...fallback,
-      contractAccepted: Boolean(row.contractAccepted),
-      contractAcceptedAt: row.contractAcceptedAt ? new Date(row.contractAcceptedAt).toISOString() : null,
-      contractVersion: row.contractVersionAccepted || null,
-      contractAcceptedByUserId: row.contractAcceptedByUserId || null,
-      contractAcceptedIP: row.contractAcceptedIP || null,
-      trainingCompleted: Boolean(row.trainingCompleted),
-      trainingCompletedAt: row.trainingCompletedAt ? new Date(row.trainingCompletedAt).toISOString() : null,
-      connectOnboardingStatus: row.connectOnboardingStatus || 'NOT_STARTED',
-      payoutsEnabled: Boolean(row.payoutsEnabled),
-      chargesEnabled: Boolean(row.chargesEnabled),
-      updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : fallback.updatedAt,
+      ...mapComplianceRowToPayload(row),
+      updatedAt: mapComplianceRowToPayload(row).updatedAt || fallback.updatedAt,
     };
   } catch (error) {
     if (isPrismaTableMissingError(error)) return fallback;
@@ -440,49 +492,37 @@ async function updateVendorCompliance(vendorEmail, updater) {
     ...updater(current),
     updatedAt: new Date().toISOString(),
   };
-  store.vendors[key] = next;
-  await writeVendorComplianceStore(store);
+  if (ENABLE_LEGACY_COMPLIANCE_JSON) {
+    store.vendors[key] = next;
+    await writeVendorComplianceStore(store);
+  }
   if (supportsPrismaModel('vendorCompliance')) {
     try {
-      const app = await getVendorApplicationByEmail(vendorEmail);
-      if (app) {
-        await prisma.$transaction(async (tx) => {
-          const { vendorProfile } = await ensureVendorIdentityFromApplication(tx, app);
-          await tx.vendorCompliance.upsert({
-            where: { vendorId: vendorProfile.id },
-            update: {
-              contractAccepted: Boolean(next.contractAccepted),
-              contractAcceptedAt: next.contractAcceptedAt ? new Date(next.contractAcceptedAt) : null,
-              contractVersionAccepted: next.contractVersion || null,
-              contractAcceptedByUserId: next.contractAcceptedByUserId || null,
-              contractAcceptedIP: next.contractAcceptedIP || null,
-              trainingCompleted: Boolean(next.trainingCompleted),
-              trainingCompletedAt: next.trainingCompletedAt ? new Date(next.trainingCompletedAt) : null,
-              connectOnboardingStatus: String(next.connectOnboardingStatus || 'NOT_STARTED'),
-              payoutsEnabled: Boolean(next.payoutsEnabled),
-              chargesEnabled: Boolean(next.chargesEnabled),
-            },
-            create: {
-              vendorId: vendorProfile.id,
-              contractAccepted: Boolean(next.contractAccepted),
-              contractAcceptedAt: next.contractAcceptedAt ? new Date(next.contractAcceptedAt) : null,
-              contractVersionAccepted: next.contractVersion || null,
-              contractAcceptedByUserId: next.contractAcceptedByUserId || null,
-              contractAcceptedIP: next.contractAcceptedIP || null,
-              trainingCompleted: Boolean(next.trainingCompleted),
-              trainingCompletedAt: next.trainingCompletedAt ? new Date(next.trainingCompletedAt) : null,
-              connectOnboardingStatus: String(next.connectOnboardingStatus || 'NOT_STARTED'),
-              payoutsEnabled: Boolean(next.payoutsEnabled),
-              chargesEnabled: Boolean(next.chargesEnabled),
-            },
-          });
-        });
-      }
+      await upsertVendorComplianceByEmail(vendorEmail, next);
     } catch (error) {
       if (!isPrismaTableMissingError(error)) throw error;
     }
   }
   return next;
+}
+
+async function backfillAllLegacyVendorComplianceToDb() {
+  if (!supportsPrismaModel('vendorCompliance')) return { migrated: 0, total: 0 };
+  const store = await readVendorComplianceStore();
+  const entries = Object.entries(store.vendors || {});
+  let migrated = 0;
+  for (const [email, payload] of entries) {
+    try {
+      const ok = await upsertVendorComplianceByEmail(email, {
+        ...defaultVendorCompliance(),
+        ...(payload || {}),
+      });
+      if (ok) migrated += 1;
+    } catch (error) {
+      if (!isPrismaTableMissingError(error)) throw error;
+    }
+  }
+  return { migrated, total: entries.length };
 }
 
 function buildVendorActivationState(vendor, compliance) {
@@ -2811,6 +2851,40 @@ createServer(async (req, res) => {
         }),
       );
       return sendJson(res, 200, { applications: enriched });
+    }
+
+    if (req.method === 'GET' && path === '/api/admin/vendor-compliance') {
+      if (!supportsPrismaModel('vendorCompliance')) {
+        return sendJson(res, 200, { compliances: [], note: 'vendorCompliance model is not available yet' });
+      }
+      const rows = await prisma.vendorCompliance.findMany({
+        include: {
+          vendor: {
+            include: {
+              user: { select: { email: true, name: true } },
+            },
+          },
+        },
+        orderBy: { updatedAt: 'desc' },
+      });
+      return sendJson(res, 200, {
+        compliances: rows.map((row) => ({
+          id: row.id,
+          vendorId: row.vendorId,
+          vendorEmail: row.vendor.user.email,
+          vendorName: row.vendor.user.name,
+          ...mapComplianceRowToPayload(row),
+          createdAt: row.createdAt,
+        })),
+      });
+    }
+
+    if (req.method === 'POST' && path === '/api/admin/vendor-compliance/backfill') {
+      const result = await backfillAllLegacyVendorComplianceToDb();
+      return sendJson(res, 200, {
+        ...result,
+        note: 'Legacy JSON vendor compliance backfilled into Prisma vendorCompliance table.',
+      });
     }
 
     if (req.method === 'PATCH' && path.match(/^\/api\/admin\/vendor-applications\/[^/]+$/)) {
