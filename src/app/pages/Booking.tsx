@@ -30,7 +30,11 @@ export default function Booking() {
   useEffect(() => {
     const storedData = sessionStorage.getItem('bookingData');
     if (storedData) {
-      setBookingData(JSON.parse(storedData));
+      const parsed = JSON.parse(storedData);
+      setBookingData(parsed);
+      if (parsed?.estimatedGuests) {
+        setFormData((prev) => ({ ...prev, guests: String(parsed.estimatedGuests) }));
+      }
     }
   }, []);
 
@@ -111,7 +115,7 @@ export default function Booking() {
             <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-md p-5 sm:p-8">
               <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-5 sm:mb-6">{t('booking.info.title')}</h2>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">{t('booking.info.name')} *</label>
                   <input
@@ -279,7 +283,7 @@ export default function Booking() {
                     min="1"
                     max={bookingData?.venue.capacity}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-transparent"
-                    placeholder="100"
+                    placeholder={bookingData?.estimatedGuests || '100'}
                   />
                   {bookingData && (
                     <p className="text-xs text-gray-500 mt-1">

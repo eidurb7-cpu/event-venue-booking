@@ -16,6 +16,7 @@ export default function VenueDetail() {
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedProviders, setSelectedProviders] = useState<Record<string, string>>({});
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [estimatedGuests, setEstimatedGuests] = useState('50');
 
   if (!venue) {
     return (
@@ -39,6 +40,8 @@ export default function VenueDetail() {
 
   const calculateTotal = () => {
     let total = venue.price;
+    const parsedGuests = Number.parseInt(estimatedGuests, 10);
+    const guestsForEstimate = Number.isFinite(parsedGuests) && parsedGuests > 0 ? parsedGuests : 1;
 
     Object.entries(selectedProviders).forEach(([serviceId, providerId]) => {
       if (providerId) {
@@ -46,8 +49,8 @@ export default function VenueDetail() {
         const provider = service?.providers.find((p) => p.id === providerId);
         if (provider) {
           if (service?.category === 'catering') {
-            // Catering is per person and finalized in checkout once guest count is entered.
-            total += 0;
+            // Catering is per person; use live guest estimate for immediate total feedback.
+            total += provider.price * guestsForEstimate;
           } else {
             total += provider.price;
           }
@@ -72,6 +75,7 @@ export default function VenueDetail() {
     const bookingData = {
       venue,
       selectedDate,
+      estimatedGuests,
       selectedProviders: Object.entries(selectedProviders)
         .filter(([, providerId]) => providerId)
         .map(([serviceId, providerId]) => {
@@ -86,6 +90,7 @@ export default function VenueDetail() {
   };
 
   const hasSelectedProviders = Object.values(selectedProviders).some((v) => v);
+  const hasCateringSelected = Object.entries(selectedProviders).some(([serviceId, providerId]) => providerId && serviceId === 'catering');
   const isVenueAvailable = selectedDate ? !venue.bookedDates.includes(selectedDate) : true;
   const today = new Date().toISOString().split('T')[0];
   const selectedDateObj = selectedDate ? new Date(`${selectedDate}T00:00:00`) : undefined;
@@ -249,6 +254,18 @@ export default function VenueDetail() {
               </div>
 
               <div>
+                {hasCateringSelected && (
+                  <div className="mb-3">
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Gaeste (Catering-Kalkulation)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={estimatedGuests}
+                      onChange={(e) => setEstimatedGuests(e.target.value)}
+                      className="w-full max-w-[220px] rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                    />
+                  </div>
+                )}
                 <h3 className="font-semibold text-gray-900 mb-2">{t('venue.summary.title')}</h3>
                 <div className="text-2xl sm:text-3xl font-bold text-purple-600">${calculateTotal().toLocaleString()}</div>
                 {hasSelectedProviders && (
@@ -257,6 +274,9 @@ export default function VenueDetail() {
                       count: Object.values(selectedProviders).filter((v) => v).length
                     })}
                   </p>
+                )}
+                {hasCateringSelected && (
+                  <p className="text-xs text-gray-500 mt-1">inkl. Catering fuer ca. {Number.parseInt(estimatedGuests, 10) || 1} Gaeste</p>
                 )}
                 <p className="text-xs text-gray-500 mt-2">{t('venue.summary.note')}</p>
               </div>
@@ -272,6 +292,40 @@ export default function VenueDetail() {
             </button>
           </div>
         </div>
+
+        <div
+          className={`fixed z-40 left-4 right-4 bottom-4 sm:left-auto sm:right-6 sm:w-[360px] transition-all duration-300 ${
+            selectedDate && isVenueAvailable ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0 pointer-events-none'
+          }`}
+        >
+          <div className="rounded-xl border border-purple-200 bg-white/95 backdrop-blur shadow-xl p-3 sm:p-4">
+            <p className="text-xs text-gray-500">Datum gewaehlt: {displayDate}</p>
+            <div className="mt-1 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm text-gray-700">Gesamt (Schaetzung)</p>
+                <p className="text-xl font-bold text-purple-700">${calculateTotal().toLocaleString()}</p>
+              </div>
+              <button
+                onClick={handleProceedToBooking}
+                className="inline-flex items-center gap-2 rounded-lg bg-purple-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-purple-700 transition-colors"
+              >
+                {t('venue.summary.proceed')}
+                <ArrowRight className="size-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          aria-label="Go to complete booking"
+          onClick={handleProceedToBooking}
+          className={`fixed z-40 right-4 sm:right-6 bottom-24 sm:bottom-28 h-12 w-12 rounded-full bg-purple-600 text-white shadow-lg hover:bg-purple-700 transition-all duration-300 flex items-center justify-center ${
+            selectedDate && isVenueAvailable ? 'translate-y-0 opacity-100' : 'translate-y-3 opacity-0 pointer-events-none'
+          }`}
+        >
+          <ArrowRight className="size-5" />
+        </button>
       </div>
     </div>
   );
