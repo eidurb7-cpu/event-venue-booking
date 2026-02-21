@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Cell, LineChart, Line } from 'recharts';
 import {
+  AdminVendorComplianceRow,
   ServiceRequest,
   VendorApplication,
   adminLogin,
+  backfillAdminVendorCompliance,
   getAdminInquiries,
   getAdminOverview,
   getAdminRequests,
+  getAdminVendorCompliance,
   getAdminVendorApplications,
   seedAdminServices,
   seedAdminVendors,
@@ -61,6 +64,9 @@ export default function AdminDashboard() {
   const [openApplicationIds, setOpenApplicationIds] = useState<Record<string, boolean>>({});
   const [openRequestIds, setOpenRequestIds] = useState<Record<string, boolean>>({});
   const [selectedApplication, setSelectedApplication] = useState<VendorApplication | null>(null);
+  const [compliances, setCompliances] = useState<AdminVendorComplianceRow[]>([]);
+  const [backfillingCompliance, setBackfillingCompliance] = useState(false);
+  const appStatusByEmail = Object.fromEntries(applications.map((app) => [String(app.email || '').toLowerCase(), app.status]));
 
   const statusChartData = [
     { name: 'Open', value: requests.filter((r) => r.status === 'open').length },
@@ -127,10 +133,12 @@ export default function AdminDashboard() {
         getAdminRequests(token),
         getAdminInquiries(token),
       ]);
+      const complianceData = await getAdminVendorCompliance(token).catch(() => ({ compliances: [] as AdminVendorComplianceRow[] }));
       setOverview(overviewData.overview);
       setApplications(applicationsData.applications);
       setRequests(requestsData.requests);
       setInquiries(inquiriesData.inquiries);
+      setCompliances(complianceData.compliances || []);
       setAdminToken(token);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Fehler beim Laden des Admin Dashboards.');
@@ -219,6 +227,20 @@ export default function AdminDashboard() {
   const jumpTo = (id: string) => {
     const el = document.getElementById(id);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const runComplianceBackfill = async () => {
+    setBackfillingCompliance(true);
+    setError('');
+    try {
+      const result = await backfillAdminVendorCompliance(adminToken);
+      await loadDashboard();
+      alert(`Compliance backfill finished: ${result.migrated}/${result.total}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Compliance backfill failed.');
+    } finally {
+      setBackfillingCompliance(false);
+    }
   };
 
   const toggleApplication = (id: string) => {
@@ -328,6 +350,13 @@ export default function AdminDashboard() {
                 className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm hover:bg-gray-50"
               >
                 {tx.openProposals}
+              </button>
+              <button
+                type="button"
+                onClick={() => jumpTo('admin-compliance')}
+                className="rounded-lg border border-indigo-300 text-indigo-700 px-4 py-2.5 text-sm hover:bg-indigo-50"
+              >
+                Compliance
               </button>
               <button
                 type="button"
@@ -622,6 +651,55 @@ export default function AdminDashboard() {
               </div>
             ))}
           </div>
+        </div>
+
+        <div id="admin-compliance" className="bg-white rounded-xl border border-gray-200 p-6">
+          <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+            <h2 className="text-xl font-semibold text-gray-900">Vendor Compliance (DB)</h2>
+            <button
+              type="button"
+              onClick={runComplianceBackfill}
+              disabled={backfillingCompliance}
+              className="rounded-lg bg-indigo-600 text-white px-4 py-2 text-sm hover:bg-indigo-700 disabled:opacity-60"
+            >
+              {backfillingCompliance ? 'Backfilling...' : 'Backfill from legacy JSON'}
+            </button>
+          </div>
+          {compliances.length === 0 ? (
+            <p className="text-sm text-gray-600">No compliance rows found yet.</p>
+          ) : (
+            <div className="overflow-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left border-b border-gray-200">
+                    <th className="py-2 pr-3">Vendor</th>
+                    <th className="py-2 pr-3">Admin</th>
+                    <th className="py-2 pr-3">Contract</th>
+                    <th className="py-2 pr-3">Training</th>
+                    <th className="py-2 pr-3">Connect</th>
+                    <th className="py-2 pr-3">Payouts</th>
+                    <th className="py-2 pr-3">Updated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {compliances.map((row) => (
+                    <tr key={row.id} className="border-b border-gray-100">
+                      <td className="py-2 pr-3">
+                        <div className="font-medium">{row.vendorName || '-'}</div>
+                        <div className="text-xs text-gray-500">{row.vendorEmail}</div>
+                      </td>
+                      <td className="py-2 pr-3">{appStatusByEmail[String(row.vendorEmail || '').toLowerCase()] === 'approved' ? 'yes' : 'pending'}</td>
+                      <td className="py-2 pr-3">{row.contractAccepted ? 'yes' : 'no'}</td>
+                      <td className="py-2 pr-3">{row.trainingCompleted ? 'yes' : 'no'}</td>
+                      <td className="py-2 pr-3">{row.connectOnboardingStatus || 'NOT_STARTED'}</td>
+                      <td className="py-2 pr-3">{row.payoutsEnabled ? 'enabled' : 'disabled'}</td>
+                      <td className="py-2 pr-3">{row.updatedAt ? new Date(row.updatedAt).toLocaleString() : '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 p-6">
