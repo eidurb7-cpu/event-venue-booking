@@ -38,6 +38,16 @@ export default function VendorPortfolio() {
     description: '',
     city: '',
     basePrice: '',
+    availabilityJson: '{}',
+  });
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [editPostForm, setEditPostForm] = useState({
+    title: '',
+    serviceName: '',
+    description: '',
+    city: '',
+    basePrice: '',
+    availabilityJson: '{}',
   });
   const navigate = useNavigate();
 
@@ -175,9 +185,16 @@ export default function VendorPortfolio() {
         description: postForm.description.trim() || undefined,
         city: postForm.city.trim() || undefined,
         basePrice: postForm.basePrice ? Number(postForm.basePrice) : undefined,
-        availability: {},
+        availability: (() => {
+          try {
+            const parsed = JSON.parse(postForm.availabilityJson || '{}');
+            return typeof parsed === 'object' && parsed ? parsed : {};
+          } catch {
+            return {};
+          }
+        })(),
       });
-      setPostForm({ title: '', serviceName: '', description: '', city: '', basePrice: '' });
+      setPostForm({ title: '', serviceName: '', description: '', city: '', basePrice: '', availabilityJson: '{}' });
       await loadPosts(vendorEmail);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Fehler beim Erstellen des Posts.');
@@ -190,6 +207,51 @@ export default function VendorPortfolio() {
       await loadPosts(vendorEmail);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Fehler beim Aktualisieren des Posts.');
+    }
+  };
+
+  const startEditPost = (post: VendorPost) => {
+    setEditingPostId(post.id);
+    setEditPostForm({
+      title: post.title || '',
+      serviceName: post.serviceName || '',
+      description: post.description || '',
+      city: post.city || '',
+      basePrice: post.basePrice ? String(post.basePrice) : '',
+      availabilityJson: JSON.stringify(post.availability || {}, null, 2),
+    });
+  };
+
+  const savePostEdit = async (postId: string) => {
+    if (!editPostForm.title.trim() || !editPostForm.serviceName.trim()) {
+      setError('Titel und Service sind Pflichtfelder.');
+      return;
+    }
+    let availability: Record<string, boolean> | undefined = undefined;
+    try {
+      const parsed = JSON.parse(editPostForm.availabilityJson || '{}');
+      if (typeof parsed === 'object' && parsed) {
+        availability = parsed as Record<string, boolean>;
+      }
+    } catch {
+      setError('Verfuegbarkeit muss gueltiges JSON sein.');
+      return;
+    }
+
+    try {
+      await updateVendorPost(postId, {
+        title: editPostForm.title.trim(),
+        serviceName: editPostForm.serviceName.trim(),
+        description: editPostForm.description.trim(),
+        city: editPostForm.city.trim(),
+        basePrice: editPostForm.basePrice ? Number(editPostForm.basePrice) : undefined,
+        availability,
+      });
+      setEditingPostId(null);
+      setError('');
+      await loadPosts(vendorEmail);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Fehler beim Speichern des Posts.');
     }
   };
 
@@ -228,6 +290,20 @@ export default function VendorPortfolio() {
             <p className="text-gray-800">
               Dein Konto ist aktuell <strong>{vendorProfile?.status || 'pending_review'}</strong>. Bitte warten, bis Admin deine Bewerbung freigibt.
             </p>
+            <div className="mt-4 rounded-lg border border-yellow-200 bg-white p-4 text-sm text-gray-700 space-y-1">
+              <p><strong>Business:</strong> {vendorProfile.businessName}</p>
+              <p><strong>Kontakt:</strong> {vendorProfile.contactName}</p>
+              <p><strong>E-Mail:</strong> {vendorProfile.email}</p>
+              {vendorProfile.city && <p><strong>Stadt:</strong> {vendorProfile.city}</p>}
+              {vendorProfile.documentUrl && (
+                <p>
+                  <strong>Dokument:</strong>{' '}
+                  <a href={vendorProfile.documentUrl} target="_blank" rel="noreferrer" className="text-purple-600 hover:text-purple-700">
+                    ansehen
+                  </a>
+                </p>
+              )}
+            </div>
             {vendorProfile.status === 'rejected' && (
               <p className="text-gray-700 mt-2">Deine Bewerbung wurde abgelehnt. Bitte Admin kontaktieren.</p>
             )}
@@ -245,6 +321,21 @@ export default function VendorPortfolio() {
           <p className="text-gray-600">Status: approved. Du kannst jetzt Angebote senden und deine Services verwalten.</p>
           {error && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
         </div>
+
+        {vendorProfile && (
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <h2 className="text-xl font-semibold text-gray-900 mb-3">Mein Account</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-gray-700">
+              <p><strong>Status:</strong> {vendorProfile.status}</p>
+              <p><strong>Business:</strong> {vendorProfile.businessName}</p>
+              <p><strong>Kontakt:</strong> {vendorProfile.contactName}</p>
+              <p><strong>E-Mail:</strong> {vendorProfile.email}</p>
+              {vendorProfile.city && <p><strong>Stadt:</strong> {vendorProfile.city}</p>}
+              {vendorProfile.websiteUrl && <p><strong>Website:</strong> {vendorProfile.websiteUrl}</p>}
+              {vendorProfile.portfolioUrl && <p><strong>Portfolio URL:</strong> {vendorProfile.portfolioUrl}</p>}
+            </div>
+          </div>
+        )}
 
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Anfrage an Admin senden</h2>
@@ -303,6 +394,13 @@ export default function VendorPortfolio() {
           </div>
           <textarea
             rows={2}
+            placeholder='Verfuegbarkeit als JSON, z. B. {"2026-03-10": true}'
+            value={postForm.availabilityJson}
+            onChange={(e) => setPostForm((p) => ({ ...p, availabilityJson: e.target.value }))}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2.5 mb-3"
+          />
+          <textarea
+            rows={2}
             placeholder="Beschreibung"
             value={postForm.description}
             onChange={(e) => setPostForm((p) => ({ ...p, description: e.target.value }))}
@@ -315,17 +413,94 @@ export default function VendorPortfolio() {
             {posts.length === 0 && <div className="text-sm text-gray-600">Noch keine Posts vorhanden.</div>}
             {posts.map((post) => (
               <div key={post.id} className="rounded-lg border border-gray-200 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="font-medium">{post.title}</p>
-                  <button
-                    type="button"
-                    onClick={() => togglePostActive(post)}
-                    className="rounded-lg bg-gray-200 px-3 py-1.5 text-sm"
-                  >
-                    {post.isActive ? 'Deaktivieren' : 'Aktivieren'}
-                  </button>
-                </div>
-                <p className="text-sm text-gray-700">{post.serviceName} | {post.city || '-'} | EUR {post.basePrice || 0}</p>
+                {editingPostId === post.id ? (
+                  <div className="space-y-3">
+                    <input
+                      type="text"
+                      value={editPostForm.title}
+                      onChange={(e) => setEditPostForm((p) => ({ ...p, title: e.target.value }))}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
+                      placeholder="Titel"
+                    />
+                    <input
+                      type="text"
+                      value={editPostForm.serviceName}
+                      onChange={(e) => setEditPostForm((p) => ({ ...p, serviceName: e.target.value }))}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
+                      placeholder="Service"
+                    />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <input
+                        type="text"
+                        value={editPostForm.city}
+                        onChange={(e) => setEditPostForm((p) => ({ ...p, city: e.target.value }))}
+                        className="rounded-lg border border-gray-300 px-3 py-2.5"
+                        placeholder="Stadt"
+                      />
+                      <input
+                        type="number"
+                        value={editPostForm.basePrice}
+                        onChange={(e) => setEditPostForm((p) => ({ ...p, basePrice: e.target.value }))}
+                        className="rounded-lg border border-gray-300 px-3 py-2.5"
+                        placeholder="Basispreis (EUR)"
+                      />
+                    </div>
+                    <textarea
+                      rows={2}
+                      value={editPostForm.description}
+                      onChange={(e) => setEditPostForm((p) => ({ ...p, description: e.target.value }))}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
+                      placeholder="Beschreibung"
+                    />
+                    <textarea
+                      rows={3}
+                      value={editPostForm.availabilityJson}
+                      onChange={(e) => setEditPostForm((p) => ({ ...p, availabilityJson: e.target.value }))}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2.5 font-mono text-xs"
+                      placeholder='{"2026-03-10": true}'
+                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => savePostEdit(post.id)}
+                        className="rounded-lg bg-purple-600 text-white px-3 py-1.5 text-sm"
+                      >
+                        Speichern
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingPostId(null)}
+                        className="rounded-lg bg-gray-200 px-3 py-1.5 text-sm"
+                      >
+                        Abbrechen
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-medium">{post.title}</p>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => startEditPost(post)}
+                          className="rounded-lg bg-purple-100 text-purple-700 px-3 py-1.5 text-sm"
+                        >
+                          Bearbeiten
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => togglePostActive(post)}
+                          className="rounded-lg bg-gray-200 px-3 py-1.5 text-sm"
+                        >
+                          {post.isActive ? 'Deaktivieren' : 'Aktivieren'}
+                        </button>
+                      </div>
+                    </div>
+                    <p className="text-sm text-gray-700">{post.serviceName} | {post.city || '-'} | EUR {post.basePrice || 0}</p>
+                    {post.description && <p className="text-sm text-gray-600 mt-1">{post.description}</p>}
+                  </>
+                )}
               </div>
             ))}
           </div>

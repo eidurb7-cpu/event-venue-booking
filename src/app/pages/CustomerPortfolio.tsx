@@ -81,6 +81,11 @@ export default function CustomerPortfolio() {
               Eingeloggt als {customerName || customerEmail} ({customerEmail})
             </div>
           )}
+          {customerEmail && (
+            <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+              Kontakt fuer Angebote: <strong>{customerEmail}</strong>
+            </div>
+          )}
           <input
             type="email"
             placeholder="Deine E-Mail fuer den Portfolio-Zugriff"
@@ -145,6 +150,7 @@ export default function CustomerPortfolio() {
               <p className="text-sm text-gray-700 mt-2">
                 Services: {request.selectedServices.join(', ')} | Budget: EUR {request.budget.toLocaleString()}
               </p>
+              <p className="text-sm text-gray-600 mt-1">Kontakt E-Mail: {request.customerEmail}</p>
               {request.eventDate && (
                 <p className="text-sm text-gray-600 mt-1">Event-Datum: {new Date(request.eventDate).toLocaleDateString()}</p>
               )}
