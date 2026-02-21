@@ -84,6 +84,40 @@ export interface VendorPost {
   updatedAt: string;
 }
 
+export interface MarketplaceBookingItem {
+  id: string;
+  bookingId: string;
+  vendorId: string;
+  serviceId: string;
+  priceOffered: number;
+  finalPrice?: number | null;
+  status: 'pending' | 'accepted' | 'declined' | 'counter_offered' | 'cancelled';
+  vendorMessage?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MarketplaceBooking {
+  id: string;
+  customerId: string;
+  status: 'draft' | 'pending' | 'partially_accepted' | 'accepted' | 'declined' | 'expired' | 'cancelled' | 'completed';
+  eventDate: string;
+  totalPrice: number;
+  finalPrice?: number | null;
+  expiresAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  items?: MarketplaceBookingItem[];
+  invoice?: {
+    id: string;
+    bookingId: string;
+    amount: number;
+    status: 'draft' | 'issued' | 'paid' | 'failed' | 'refunded' | 'void';
+    issuedAt?: string | null;
+    paidAt?: string | null;
+  } | null;
+}
+
 async function request(path: string, options: RequestInit = {}) {
   const controller = new AbortController();
   const timeoutMs = 30000;
@@ -376,4 +410,61 @@ export function getVendorDocumentUploadUrl(payload: { filename: string; contentT
     method: 'POST',
     body: JSON.stringify(payload),
   }) as Promise<{ uploadUrl: string; fileKey: string; publicUrl: string }>;
+}
+
+export function createMarketplaceBookingRequest(payload: {
+  customerEmail: string;
+  customerName: string;
+  customerPhone?: string;
+  address?: string;
+  eventDate: string;
+  expiresHours?: number;
+  items: Array<{
+    serviceId: string;
+    priceOffered?: number;
+    vendorMessage?: string;
+  }>;
+}) {
+  return request('/api/marketplace/bookings/request', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }) as Promise<{ booking: MarketplaceBooking }>;
+}
+
+export function vendorDecideMarketplaceBooking(
+  bookingId: string,
+  payload: {
+    vendorEmail: string;
+    decisions: Array<{
+      bookingItemId: string;
+      status: 'accepted' | 'declined' | 'counter_offered';
+      counterPrice?: number;
+      finalPrice?: number;
+      vendorMessage?: string;
+    }>;
+  },
+) {
+  return request(`/api/marketplace/bookings/${bookingId}/vendor-decision`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }) as Promise<{ booking: MarketplaceBooking }>;
+}
+
+export function expireMarketplaceBookings() {
+  return request('/api/marketplace/bookings/expire', {
+    method: 'POST',
+  }) as Promise<{ expired: number }>;
+}
+
+export function createMarketplaceReview(payload: {
+  bookingId: string;
+  serviceId: string;
+  customerEmail: string;
+  rating: number;
+  comment?: string;
+}) {
+  return request('/api/marketplace/reviews', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }

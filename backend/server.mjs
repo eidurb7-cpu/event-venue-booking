@@ -190,6 +190,109 @@ function normalizeResponseHours(input) {
   return Math.min(MAX_RESPONSE_HOURS, Math.max(1, Math.round(hours)));
 }
 
+function httpError(status, message) {
+  const err = new Error(message);
+  err.status = status;
+  return err;
+}
+
+function normalizeDateOnly(input) {
+  const d = new Date(input);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function pickPrimaryCategory(categories) {
+  if (Array.isArray(categories) && categories.length > 0) return String(categories[0]);
+  return 'General';
+}
+
+function mapVendorApplicationStatusToProfileStatus(status) {
+  if (status === 'approved') return 'approved';
+  if (status === 'rejected') return 'declined';
+  return 'pending';
+}
+
+async function ensureVendorIdentityFromApplication(tx, application) {
+  let user = await tx.user.findFirst({
+    where: { email: { equals: application.email, mode: 'insensitive' }, role: 'vendor' },
+  });
+
+  if (!user) {
+    user = await tx.user.create({
+      data: {
+        name: application.businessName,
+        email: application.email,
+        password: application.password || `vendor_${randomUUID()}`,
+        googleSub: application.googleSub || null,
+        role: 'vendor',
+      },
+    });
+  } else if (!user.googleSub && application.googleSub) {
+    user = await tx.user.update({
+      where: { id: user.id },
+      data: { googleSub: application.googleSub },
+    });
+  }
+
+  const vendorProfile = await tx.vendorProfile.upsert({
+    where: { vendorApplicationId: application.id },
+    update: {
+      userId: user.id,
+      status: mapVendorApplicationStatusToProfileStatus(application.status),
+      category: pickPrimaryCategory(application.categories),
+      description: application.businessIntro || undefined,
+    },
+    create: {
+      userId: user.id,
+      vendorApplicationId: application.id,
+      status: mapVendorApplicationStatusToProfileStatus(application.status),
+      category: pickPrimaryCategory(application.categories),
+      description: application.businessIntro || undefined,
+    },
+  });
+
+  return { user, vendorProfile };
+}
+
+async function releaseBookingAvailability(tx, booking) {
+  const eventDate = normalizeDateOnly(booking.eventDate);
+  if (!eventDate) return;
+  const items = await tx.bookingItem.findMany({
+    where: { bookingId: booking.id },
+  });
+  for (const item of items) {
+    await tx.availability.updateMany({
+      where: {
+        serviceId: item.serviceId,
+        date: eventDate,
+        status: 'reserved',
+      },
+      data: { status: 'available', reservationExpiresAt: null },
+    });
+  }
+}
+
+async function bookBookingAvailability(tx, booking) {
+  const eventDate = normalizeDateOnly(booking.eventDate);
+  if (!eventDate) return;
+  const items = await tx.bookingItem.findMany({
+    where: { bookingId: booking.id },
+  });
+  for (const item of items) {
+    await tx.availability.upsert({
+      where: { serviceId_date: { serviceId: item.serviceId, date: eventDate } },
+      update: { status: 'booked', reservationExpiresAt: null },
+      create: {
+        serviceId: item.serviceId,
+        date: eventDate,
+        status: 'booked',
+      },
+    });
+  }
+}
+
 const DEFAULT_SERVICE_SEED = [
   { name: 'DJ Premium', category: 'DJ', description: 'DJ fuer Hochzeiten und Events', basePrice: 800 },
   { name: 'Catering Basic', category: 'Catering', description: 'Buffet fuer kleine Events', basePrice: 1200 },
@@ -632,6 +735,340 @@ createServer(async (req, res) => {
       });
     }
 
+    if (req.method === 'POST' && path === '/api/marketplace/bookings/request') {
+      const body = await readBody(req);
+      const customerEmail = String(body.customerEmail || '').trim();
+      const customerName = String(body.customerName || '').trim();
+      const eventDate = normalizeDateOnly(body.eventDate);
+      const expiresHours = normalizeResponseHours(body.expiresHours || body.offerResponseHours || 48);
+      const expiresAt = new Date(Date.now() + expiresHours * 60 * 60 * 1000);
+      const itemsInput = Array.isArray(body.items) ? body.items : [];
+
+      if (!customerEmail || !customerName || !eventDate || itemsInput.length === 0) {
+        return sendJson(res, 400, { error: 'Missing required fields (customerEmail, customerName, eventDate, items)' });
+      }
+
+      const result = await prisma.$transaction(async (tx) => {
+        const customer = await tx.user.findFirst({
+          where: { email: { equals: customerEmail, mode: 'insensitive' }, role: 'customer' },
+        });
+        if (!customer) throw httpError(403, 'Customer must be logged in before creating a booking request');
+
+        await tx.customerProfile.upsert({
+          where: { userId: customer.id },
+          update: {
+            address: body.address || undefined,
+            phone: body.customerPhone || undefined,
+          },
+          create: {
+            userId: customer.id,
+            address: body.address || undefined,
+            phone: body.customerPhone || undefined,
+          },
+        });
+
+        const booking = await tx.booking.create({
+          data: {
+            customerId: customer.id,
+            status: 'pending',
+            eventDate,
+            expiresAt,
+            totalPrice: 0,
+          },
+        });
+
+        let runningTotal = 0;
+        for (const item of itemsInput) {
+          const serviceId = String(item.serviceId || '').trim();
+          if (!serviceId) throw httpError(400, 'Each booking item needs serviceId');
+
+          const service = await tx.marketplaceService.findUnique({
+            where: { id: serviceId },
+          });
+          if (!service || !service.isActive) throw httpError(404, `Service ${serviceId} not found or inactive`);
+
+          const availability = await tx.availability.upsert({
+            where: { serviceId_date: { serviceId, date: eventDate } },
+            update: {},
+            create: { serviceId, date: eventDate, status: 'available' },
+          });
+
+          if (availability.status !== 'available') {
+            throw httpError(409, `Service ${service.title} is not available on selected date`);
+          }
+
+          await tx.availability.update({
+            where: { id: availability.id },
+            data: {
+              status: 'reserved',
+              reservationExpiresAt: new Date(Date.now() + 15 * 60 * 1000),
+            },
+          });
+
+          const priceOffered = Number(item.priceOffered || service.basePrice || 0);
+          if (!Number.isFinite(priceOffered) || priceOffered <= 0) {
+            throw httpError(400, `Invalid priceOffered for service ${serviceId}`);
+          }
+
+          runningTotal += priceOffered;
+          await tx.bookingItem.create({
+            data: {
+              bookingId: booking.id,
+              vendorId: service.vendorId,
+              serviceId: service.id,
+              priceOffered,
+              status: 'pending',
+              vendorMessage: item.vendorMessage || null,
+            },
+          });
+
+          await tx.analyticsEvent.create({
+            data: {
+              type: 'booking_request',
+              userId: customer.id,
+              vendorId: service.vendorId,
+              serviceId: service.id,
+              bookingId: booking.id,
+            },
+          });
+        }
+
+        const updated = await tx.booking.update({
+          where: { id: booking.id },
+          data: { totalPrice: runningTotal },
+          include: {
+            items: true,
+          },
+        });
+
+        return updated;
+      });
+
+      return sendJson(res, 201, { booking: result });
+    }
+
+    if (req.method === 'POST' && path.match(/^\/api\/marketplace\/bookings\/[^/]+\/vendor-decision$/)) {
+      const bookingId = path.split('/')[4];
+      const body = await readBody(req);
+      const vendorEmail = String(body.vendorEmail || '').trim();
+      const decisions = Array.isArray(body.decisions) ? body.decisions : [];
+      if (!vendorEmail || decisions.length === 0) {
+        return sendJson(res, 400, { error: 'vendorEmail and decisions are required' });
+      }
+
+      const updatedBooking = await prisma.$transaction(async (tx) => {
+        const booking = await tx.booking.findUnique({
+          where: { id: bookingId },
+          include: { items: true },
+        });
+        if (!booking) throw httpError(404, 'Booking not found');
+        if (['declined', 'cancelled', 'expired', 'completed'].includes(booking.status)) {
+          throw httpError(400, `Booking is ${booking.status} and cannot be modified`);
+        }
+
+        const app = await tx.vendorApplication.findFirst({
+          where: { email: { equals: vendorEmail, mode: 'insensitive' } },
+        });
+        if (!app) throw httpError(404, 'Vendor account not found');
+        if (app.status !== 'approved') throw httpError(403, 'Vendor is not approved');
+
+        const { vendorProfile } = await ensureVendorIdentityFromApplication(tx, app);
+        if (!['approved', 'active'].includes(vendorProfile.status)) {
+          throw httpError(403, `Vendor profile status is ${vendorProfile.status}`);
+        }
+
+        for (const decision of decisions) {
+          const bookingItemId = String(decision.bookingItemId || '').trim();
+          const item = booking.items.find((i) => i.id === bookingItemId);
+          if (!item) throw httpError(404, `Booking item ${bookingItemId} not found`);
+          if (item.vendorId !== vendorProfile.id) throw httpError(403, 'Cannot modify another vendor item');
+
+          const nextStatus = String(decision.status || '').trim();
+          if (!['accepted', 'declined', 'counter_offered'].includes(nextStatus)) {
+            throw httpError(400, 'Invalid booking item decision status');
+          }
+
+          const updateData = {
+            status: nextStatus,
+            vendorMessage: decision.vendorMessage || null,
+            finalPrice: null,
+            priceOffered: item.priceOffered,
+          };
+
+          if (nextStatus === 'counter_offered') {
+            const counterPrice = Number(decision.counterPrice || 0);
+            if (!Number.isFinite(counterPrice) || counterPrice <= 0) {
+              throw httpError(400, 'counterPrice must be > 0 for counter_offered');
+            }
+            updateData.priceOffered = counterPrice;
+          }
+
+          if (nextStatus === 'accepted') {
+            const finalPrice = Number(decision.finalPrice || item.priceOffered);
+            if (!Number.isFinite(finalPrice) || finalPrice <= 0) throw httpError(400, 'Invalid finalPrice');
+            updateData.finalPrice = finalPrice;
+          }
+
+          await tx.bookingItem.update({
+            where: { id: item.id },
+            data: updateData,
+          });
+        }
+
+        const items = await tx.bookingItem.findMany({ where: { bookingId } });
+        const hasDeclined = items.some((i) => i.status === 'declined');
+        const allAccepted = items.length > 0 && items.every((i) => i.status === 'accepted');
+        const hasProgress = items.some((i) => i.status === 'accepted' || i.status === 'counter_offered');
+        let bookingStatus = booking.status;
+
+        if (hasDeclined) bookingStatus = 'declined';
+        else if (allAccepted) bookingStatus = 'accepted';
+        else if (hasProgress) bookingStatus = 'partially_accepted';
+        else bookingStatus = 'pending';
+
+        const finalPrice = items.reduce((sum, i) => sum + Number(i.finalPrice || i.priceOffered || 0), 0);
+
+        const bookingUpdated = await tx.booking.update({
+          where: { id: bookingId },
+          data: {
+            status: bookingStatus,
+            totalPrice: finalPrice,
+            finalPrice: bookingStatus === 'accepted' ? finalPrice : null,
+          },
+        });
+
+        if (bookingStatus === 'declined') {
+          await releaseBookingAvailability(tx, bookingUpdated);
+        }
+
+        if (bookingStatus === 'accepted') {
+          await bookBookingAvailability(tx, bookingUpdated);
+          await tx.invoice.upsert({
+            where: { bookingId },
+            update: {
+              amount: finalPrice,
+              status: 'issued',
+              issuedAt: new Date(),
+            },
+            create: {
+              bookingId,
+              amount: finalPrice,
+              status: 'issued',
+              issuedAt: new Date(),
+            },
+          });
+          await tx.analyticsEvent.create({
+            data: {
+              type: 'booking_accepted',
+              vendorId: vendorProfile.id,
+              bookingId,
+            },
+          });
+        }
+
+        return tx.booking.findUnique({
+          where: { id: bookingId },
+          include: { items: true, invoice: true },
+        });
+      });
+
+      return sendJson(res, 200, { booking: updatedBooking });
+    }
+
+    if (req.method === 'POST' && path === '/api/marketplace/bookings/expire') {
+      const now = new Date();
+      const expired = await prisma.$transaction(async (tx) => {
+        const bookings = await tx.booking.findMany({
+          where: {
+            status: { in: ['pending', 'partially_accepted'] },
+            expiresAt: { lt: now },
+          },
+        });
+
+        for (const booking of bookings) {
+          await tx.booking.update({
+            where: { id: booking.id },
+            data: { status: 'expired' },
+          });
+          await releaseBookingAvailability(tx, booking);
+        }
+        return bookings.length;
+      });
+
+      return sendJson(res, 200, { expired });
+    }
+
+    if (req.method === 'POST' && path === '/api/marketplace/reviews') {
+      const body = await readBody(req);
+      const bookingId = String(body.bookingId || '').trim();
+      const serviceId = String(body.serviceId || '').trim();
+      const customerEmail = String(body.customerEmail || '').trim();
+      const rating = Number(body.rating);
+      if (!bookingId || !serviceId || !customerEmail || !Number.isFinite(rating)) {
+        return sendJson(res, 400, { error: 'bookingId, serviceId, customerEmail, rating are required' });
+      }
+      if (rating < 1 || rating > 5) return sendJson(res, 400, { error: 'rating must be between 1 and 5' });
+
+      const review = await prisma.$transaction(async (tx) => {
+        const customer = await tx.user.findFirst({
+          where: { email: { equals: customerEmail, mode: 'insensitive' }, role: 'customer' },
+        });
+        if (!customer) throw httpError(404, 'Customer not found');
+
+        const booking = await tx.booking.findUnique({
+          where: { id: bookingId },
+          include: { items: true },
+        });
+        if (!booking) throw httpError(404, 'Booking not found');
+        if (booking.customerId !== customer.id) throw httpError(403, 'Cannot review another customer booking');
+        if (!(booking.status === 'completed' || booking.isCompleted)) {
+          throw httpError(400, 'Booking must be completed before review');
+        }
+
+        const item = booking.items.find((i) => i.serviceId === serviceId && i.status === 'accepted');
+        if (!item) throw httpError(400, 'Service is not accepted in this booking');
+
+        const created = await tx.review.create({
+          data: {
+            bookingId,
+            serviceId,
+            vendorId: item.vendorId,
+            customerId: customer.id,
+            rating: Math.round(rating),
+            comment: body.comment || null,
+          },
+        });
+
+        const agg = await tx.review.aggregate({
+          where: { vendorId: item.vendorId },
+          _count: { _all: true },
+          _avg: { rating: true },
+        });
+
+        await tx.vendorProfile.update({
+          where: { id: item.vendorId },
+          data: {
+            totalReviews: agg._count._all || 0,
+            ratingAverage: agg._avg.rating || 0,
+          },
+        });
+
+        await tx.analyticsEvent.create({
+          data: {
+            type: 'review_created',
+            userId: customer.id,
+            vendorId: item.vendorId,
+            serviceId,
+            bookingId,
+          },
+        });
+
+        return created;
+      });
+
+      return sendJson(res, 201, { review });
+    }
+
     if (req.method === 'POST' && path === '/api/requests') {
       const body = await readBody(req);
       const { customerName, customerEmail, selectedServices, budget } = body;
@@ -762,6 +1199,18 @@ createServer(async (req, res) => {
           reviewNote: status === 'pending_review' ? null : reviewNote,
           reviewedAt: status === 'pending_review' ? null : new Date(),
         },
+      });
+
+      await prisma.$transaction(async (tx) => {
+        const fresh = await tx.vendorApplication.findUnique({ where: { id: applicationId } });
+        if (!fresh) return;
+        const { vendorProfile } = await ensureVendorIdentityFromApplication(tx, fresh);
+        if (status === 'approved') {
+          await tx.vendorProfile.update({
+            where: { id: vendorProfile.id },
+            data: { status: 'active' },
+          });
+        }
       });
 
       if (status === 'approved') {
@@ -1092,7 +1541,8 @@ createServer(async (req, res) => {
 
     return notFound(res);
   } catch (error) {
-    return sendJson(res, 500, { error: error.message || 'Internal server error' });
+    const status = Number(error?.status) || 500;
+    return sendJson(res, status, { error: error?.message || 'Internal server error' });
   }
 }).listen(PORT, async () => {
   try {
