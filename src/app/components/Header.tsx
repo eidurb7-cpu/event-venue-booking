@@ -128,7 +128,7 @@ export function Header() {
                 <span className="hidden sm:inline">{languages.find((l) => l.code === language)?.name}</span>
               </button>
 
-              <div className={`absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border transition-all duration-200 z-20 ${languageOpen ? 'opacity-100 visible' : 'opacity-0 invisible'}`}>
+              <div className={`absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border transition-all duration-200 z-20 max-md:fixed max-md:left-4 max-md:right-4 max-md:top-[72px] max-md:w-auto ${languageOpen ? 'opacity-100 visible' : 'opacity-0 invisible'}`}>
                 {languages.map((lang) => (
                   <button
                     key={lang.code}
