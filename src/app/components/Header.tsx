@@ -16,6 +16,7 @@ export function Header() {
   const [headerVisible, setHeaderVisible] = useState(true);
   const languageMenuRef = useRef<HTMLDivElement | null>(null);
   const lastScrollYRef = useRef(0);
+  const revealTimeoutRef = useRef<number | null>(null);
 
   const languages = [
     { code: 'de' as const, name: 'Deutsch' },
@@ -46,6 +47,10 @@ export function Header() {
       const currentY = window.scrollY || 0;
       const lastY = lastScrollYRef.current;
 
+      if (revealTimeoutRef.current) {
+        window.clearTimeout(revealTimeoutRef.current);
+      }
+
       if (currentY < 24) {
         setHeaderVisible(true);
       } else if (currentY > lastY + 6) {
@@ -54,12 +59,28 @@ export function Header() {
         setHeaderVisible(true);
       }
 
+      // If user stops scrolling, reveal ribbon again so navigation is never lost.
+      revealTimeoutRef.current = window.setTimeout(() => {
+        setHeaderVisible(true);
+      }, 180);
+
       lastScrollYRef.current = currentY;
     };
 
     window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (revealTimeoutRef.current) {
+        window.clearTimeout(revealTimeoutRef.current);
+      }
+    };
   }, []);
+
+  useEffect(() => {
+    if (mobileOpen || languageOpen) {
+      setHeaderVisible(true);
+    }
+  }, [mobileOpen, languageOpen]);
 
   const accountHref =
     currentRole === 'vendor' ? '/vendor-portfolio' : currentRole === 'admin' ? '/admin' : '/customer-portfolio';
