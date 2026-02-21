@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router';
 import { MapPin, Users, Check, ArrowRight, Calendar as CalendarIcon } from 'lucide-react';
 import { venues, services } from '../data/mockData';
@@ -17,6 +17,8 @@ export default function VenueDetail() {
   const [selectedProviders, setSelectedProviders] = useState<Record<string, string>>({});
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [estimatedGuests, setEstimatedGuests] = useState('50');
+  const datePickerRef = useRef<HTMLDivElement | null>(null);
+  const checkoutSectionRef = useRef<HTMLDivElement | null>(null);
 
   if (!venue) {
     return (
@@ -87,6 +89,10 @@ export default function VenueDetail() {
 
     sessionStorage.setItem('bookingData', JSON.stringify(bookingData));
     navigate('/booking');
+  };
+
+  const guideToCompleteBooking = () => {
+    checkoutSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   };
 
   const hasSelectedProviders = Object.values(selectedProviders).some((v) => v);
@@ -190,10 +196,10 @@ export default function VenueDetail() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-md p-4 sm:p-8 sticky bottom-2 sm:bottom-4">
+        <div ref={checkoutSectionRef} className="bg-white rounded-xl shadow-md p-4 sm:p-8 sticky bottom-2 sm:bottom-4">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="flex-1 grid gap-6 lg:grid-cols-2 lg:items-end">
-              <div>
+              <div ref={datePickerRef}>
                 <div className="flex items-center gap-2 mb-2">
                   <CalendarIcon className="size-5 text-purple-600" />
                   <h3 className="font-semibold text-gray-900">{t('venue.eventDate')}</h3>
@@ -318,14 +324,16 @@ export default function VenueDetail() {
 
         <button
           type="button"
-          aria-label="Go to complete booking"
-          onClick={handleProceedToBooking}
-          className={`fixed z-40 right-4 sm:right-6 bottom-24 sm:bottom-28 h-12 w-12 rounded-full bg-purple-600 text-white shadow-lg hover:bg-purple-700 transition-all duration-300 flex items-center justify-center ${
-            selectedDate && isVenueAvailable ? 'translate-y-0 opacity-100' : 'translate-y-3 opacity-0 pointer-events-none'
-          }`}
+          aria-label="Go to checkout section"
+          onClick={guideToCompleteBooking}
+          className="fixed z-40 right-4 sm:right-6 bottom-24 sm:bottom-28 h-12 w-12 rounded-full bg-purple-600 text-white shadow-lg hover:bg-purple-700 transition-all duration-300 flex items-center justify-center animate-pulse"
         >
           <ArrowRight className="size-5" />
         </button>
+
+        <div className="fixed z-30 right-4 sm:right-6 bottom-16 sm:bottom-20 rounded-full bg-white/95 border border-purple-200 px-3 py-1 text-[11px] text-purple-700 shadow-sm">
+          Go to checkout
+        </div>
       </div>
     </div>
   );
