@@ -82,6 +82,15 @@ export default function Booking() {
     return total;
   };
 
+  const calculateAdjustedTotal = () => {
+    const rawTotal = calculateTotal();
+    // Customer-facing total is presented as a single adjusted amount.
+    // Actual final values are still confirmed by backend/vendor workflow.
+    const factor = Number(import.meta.env.VITE_PLATFORM_PRICE_FACTOR || 1.1);
+    const validFactor = Number.isFinite(factor) && factor > 0 ? factor : 1.1;
+    return Math.round(rawTotal * validFactor);
+  };
+
   const dateLocale = language === 'de' ? 'de-DE' : 'en-US';
 
   if (showSuccess) {
@@ -378,12 +387,6 @@ export default function Booking() {
                               <span className="text-sm text-gray-600">{t('booking.summary.rating')}:</span>
                               <span className="text-sm font-medium">{item.provider.rating} *</span>
                             </div>
-                            <p className="text-purple-600 font-semibold mt-2">
-                              ${item.provider.price.toLocaleString()}
-                              {item.service.category === 'catering' && (
-                                <span className="text-xs text-gray-500"> {t('venue.perPerson')}</span>
-                              )}
-                            </p>
                           </div>
                         ))}
                       </div>
@@ -393,34 +396,20 @@ export default function Booking() {
                   <div className="pt-6 border-t">
                     {formData.guests && parseInt(formData.guests, 10) > 0 ? (
                       <>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-gray-600">{t('booking.summary.subtotal')}</span>
-                          <span className="font-semibold">${calculateTotal().toLocaleString()}</span>
-                        </div>
-                        <div className="flex items-center justify-between mb-4">
-                          <span className="text-gray-600">{t('booking.summary.fee')}</span>
-                          <span className="font-semibold">${(calculateTotal() * 0.1).toLocaleString()}</span>
-                        </div>
                         <div className="flex items-center justify-between pt-4 border-t">
                           <span className="text-lg font-bold text-gray-900">{t('booking.summary.total')}</span>
-                          <span className="text-2xl font-bold text-purple-600">${(calculateTotal() * 1.1).toLocaleString()}</span>
+                          <span className="text-2xl font-bold text-purple-600">${calculateAdjustedTotal().toLocaleString()}</span>
                         </div>
+                        <p className="text-xs text-gray-500 mt-2">{t('booking.summary.totalNotice')}</p>
                         <p className="text-xs text-gray-500 mt-2">{t('booking.summary.forGuests', { count: formData.guests })}</p>
                       </>
                     ) : (
                       <>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-gray-600">{t('booking.summary.subtotal')}</span>
-                          <span className="font-semibold">${calculateTotal().toLocaleString()}</span>
-                        </div>
-                        <div className="flex items-center justify-between mb-4">
-                          <span className="text-gray-600">{t('booking.summary.fee')}</span>
-                          <span className="font-semibold">${(calculateTotal() * 0.1).toLocaleString()}</span>
-                        </div>
                         <div className="flex items-center justify-between pt-4 border-t">
                           <span className="text-lg font-bold text-gray-900">{t('booking.summary.total')}</span>
-                          <span className="text-2xl font-bold text-purple-600">${(calculateTotal() * 1.1).toLocaleString()}</span>
+                          <span className="text-2xl font-bold text-purple-600">${calculateAdjustedTotal().toLocaleString()}</span>
                         </div>
+                        <p className="text-xs text-gray-500 mt-2">{t('booking.summary.totalNotice')}</p>
                         <p className="text-xs text-gray-500 mt-2">{t('booking.summary.enterGuests')}</p>
                       </>
                     )}
