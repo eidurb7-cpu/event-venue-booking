@@ -1,16 +1,18 @@
 import { Star, Check } from 'lucide-react';
 import type { Service, ServiceProvider } from '../data/mockData';
 import { useLanguage } from '../context/LanguageContext';
+import { useState } from 'react';
 
 interface ServiceCardProps {
   service: Service;
-  selectedProvider?: string;
-  onSelectProvider?: (serviceId: string, providerId: string) => void;
+  selectedProviderIds?: string[];
+  onAddToCart?: (serviceId: string, providerId: string) => void;
   selectedDate?: string;
 }
 
-export function ServiceCard({ service, selectedProvider, onSelectProvider, selectedDate }: ServiceCardProps) {
-  const { t } = useLanguage();
+export function ServiceCard({ service, selectedProviderIds = [], onAddToCart, selectedDate }: ServiceCardProps) {
+  const { t, language } = useLanguage();
+  const [expandedProviderId, setExpandedProviderId] = useState<string | null>(null);
   
   const isProviderAvailable = (provider: ServiceProvider) => {
     if (!selectedDate) return true;
@@ -34,17 +36,18 @@ export function ServiceCard({ service, selectedProvider, onSelectProvider, selec
         <div className="space-y-4">
           {service.providers.map((provider: ServiceProvider) => {
             const available = isProviderAvailable(provider);
+            const isAdded = selectedProviderIds.includes(provider.id);
+            const showDetails = expandedProviderId === provider.id;
             return (
               <div 
                 key={provider.id}
                 className={`border rounded-lg p-4 transition-all ${
                   !available 
                     ? 'border-gray-200 bg-gray-50 opacity-60 cursor-not-allowed' 
-                    : selectedProvider === provider.id 
+                    : isAdded
                       ? 'border-purple-600 bg-purple-50 cursor-pointer' 
                       : 'border-gray-200 hover:border-purple-300 cursor-pointer'
                 }`}
-                onClick={() => available && onSelectProvider?.(service.id, provider.id)}
               >
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex-1">
@@ -71,7 +74,7 @@ export function ServiceCard({ service, selectedProvider, onSelectProvider, selec
                       ${provider.price.toLocaleString()}
                       {service.category === 'catering' && <span className="text-xs text-gray-500">{t('venue.perPerson')}</span>}
                     </span>
-                    {selectedProvider === provider.id && (
+                    {isAdded && (
                       <div className="bg-purple-600 rounded-full p-1">
                         <Check className="size-4 text-white" />
                       </div>
@@ -89,6 +92,41 @@ export function ServiceCard({ service, selectedProvider, onSelectProvider, selec
                     </span>
                   ))}
                 </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedProviderId(showDetails ? null : provider.id)}
+                    className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                  >
+                    {showDetails ? (language === 'de' ? 'Schliessen' : 'Close') : (language === 'de' ? 'Details ansehen' : 'View details')}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!available}
+                    onClick={() => onAddToCart?.(service.id, provider.id)}
+                    className="rounded-lg bg-purple-600 text-white px-3 py-1.5 text-sm font-semibold hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                  >
+                    {isAdded ? (language === 'de' ? 'Mehr hinzufuegen' : 'Add more') : (language === 'de' ? 'Hinzufuegen' : 'Add')}
+                  </button>
+                </div>
+
+                {showDetails && (
+                  <div className="mt-4 rounded-lg border border-purple-200 bg-purple-50 p-3 text-sm text-gray-700">
+                    <p>
+                      <span className="font-semibold">{language === 'de' ? 'Anbieter' : 'Provider'}:</span> {provider.name}
+                    </p>
+                    <p className="mt-1">
+                      <span className="font-semibold">{language === 'de' ? 'Bewertung' : 'Rating'}:</span> {provider.rating} ({provider.reviewCount} {t('venue.reviews')})
+                    </p>
+                    <p className="mt-1">
+                      <span className="font-semibold">{language === 'de' ? 'Spezialitaeten' : 'Specialties'}:</span> {provider.specialties.join(', ')}
+                    </p>
+                    {!available && (
+                      <p className="mt-2 text-red-600">{t('venue.booked')}</p>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}

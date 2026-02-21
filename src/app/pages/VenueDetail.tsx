@@ -1,12 +1,18 @@
 import { useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router';
-import { MapPin, Users, Check, ArrowRight, Calendar as CalendarIcon } from 'lucide-react';
+import { MapPin, Users, Check, ArrowRight, Calendar as CalendarIcon, Trash2 } from 'lucide-react';
 import { venues, services } from '../data/mockData';
 import { ServiceCard } from '../components/ServiceCard';
 import { useLanguage } from '../context/LanguageContext';
 import { Calendar } from '../components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import { getCurrentUser } from '../utils/auth';
+
+type CartItem = {
+  serviceId: string;
+  providerId: string;
+  quantity: number;
+};
 
 export default function VenueDetail() {
   const { id } = useParams();
@@ -15,11 +21,12 @@ export default function VenueDetail() {
   const venue = venues.find((v) => v.id === id);
 
   const [selectedDate, setSelectedDate] = useState('');
-  const [selectedProviders, setSelectedProviders] = useState<Record<string, string>>({});
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [estimatedGuests, setEstimatedGuests] = useState('50');
   const datePickerRef = useRef<HTMLDivElement | null>(null);
   const checkoutSectionRef = useRef<HTMLDivElement | null>(null);
+  const cartSectionRef = useRef<HTMLDivElement | null>(null);
   const currentUser = getCurrentUser();
   const isBookingBlockedForRole = currentUser?.role === 'vendor' || currentUser?.role === 'admin';
 
@@ -36,11 +43,31 @@ export default function VenueDetail() {
     );
   }
 
-  const handleSelectProvider = (serviceId: string, providerId: string) => {
-    setSelectedProviders((prev) => ({
-      ...prev,
-      [serviceId]: prev[serviceId] === providerId ? '' : providerId
-    }));
+  const handleAddToCart = (serviceId: string, providerId: string) => {
+    setCartItems((prev) => {
+      const existingIndex = prev.findIndex((item) => item.serviceId === serviceId && item.providerId === providerId);
+      if (existingIndex >= 0) {
+        return prev.map((item, index) =>
+          index === existingIndex
+            ? { ...item, quantity: Math.min(item.quantity + 1, 20) }
+            : item
+        );
+      }
+      return [...prev, { serviceId, providerId, quantity: 1 }];
+    });
+  };
+
+  const handleUpdateCartQuantity = (serviceId: string, providerId: string, quantity: number) => {
+    const safeQty = Number.isFinite(quantity) ? Math.max(1, Math.min(20, quantity)) : 1;
+    setCartItems((prev) =>
+      prev.map((item) =>
+        item.serviceId === serviceId && item.providerId === providerId ? { ...item, quantity: safeQty } : item
+      )
+    );
+  };
+
+  const handleRemoveFromCart = (serviceId: string, providerId: string) => {
+    setCartItems((prev) => prev.filter((item) => !(item.serviceId === serviceId && item.providerId === providerId)));
   };
 
   const calculateTotal = () => {
@@ -48,17 +75,15 @@ export default function VenueDetail() {
     const parsedGuests = Number.parseInt(estimatedGuests, 10);
     const guestsForEstimate = Number.isFinite(parsedGuests) && parsedGuests > 0 ? parsedGuests : 1;
 
-    Object.entries(selectedProviders).forEach(([serviceId, providerId]) => {
-      if (providerId) {
-        const service = services.find((s) => s.id === serviceId);
-        const provider = service?.providers.find((p) => p.id === providerId);
-        if (provider) {
-          if (service?.category === 'catering') {
-            // Catering is per person; use live guest estimate for immediate total feedback.
-            total += provider.price * guestsForEstimate;
-          } else {
-            total += provider.price;
-          }
+    cartItems.forEach(({ serviceId, providerId, quantity }) => {
+      const service = services.find((s) => s.id === serviceId);
+      const provider = service?.providers.find((p) => p.id === providerId);
+      if (provider) {
+        if (service?.category === 'catering') {
+          // Catering is per person; use live guest estimate for immediate total feedback.
+          total += provider.price * guestsForEstimate;
+        } else {
+          total += provider.price * quantity;
         }
       }
     });
@@ -90,13 +115,14 @@ export default function VenueDetail() {
       venue,
       selectedDate,
       estimatedGuests,
-      selectedProviders: Object.entries(selectedProviders)
-        .filter(([, providerId]) => providerId)
-        .map(([serviceId, providerId]) => {
+      selectedProviders: cartItems
+        .map((item) => {
+          const { serviceId, providerId, quantity } = item;
           const service = services.find((s) => s.id === serviceId);
           const provider = service?.providers.find((p) => p.id === providerId);
-          return { service, provider };
+          return { service, provider, quantity };
         })
+        .filter((item) => item.service && item.provider)
     };
 
     sessionStorage.setItem('bookingData', JSON.stringify(bookingData));
@@ -107,8 +133,12 @@ export default function VenueDetail() {
     checkoutSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   };
 
-  const hasSelectedProviders = Object.values(selectedProviders).some((v) => v);
-  const hasCateringSelected = Object.entries(selectedProviders).some(([serviceId, providerId]) => providerId && serviceId === 'catering');
+  const guideToCart = () => {
+    cartSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  const hasSelectedProviders = cartItems.length > 0;
+  const hasCateringSelected = cartItems.some((item) => item.serviceId === 'catering');
   const isVenueAvailable = selectedDate ? !venue.bookedDates.includes(selectedDate) : true;
   const today = new Date().toISOString().split('T')[0];
   const selectedDateObj = selectedDate ? new Date(`${selectedDate}T00:00:00`) : undefined;
@@ -200,8 +230,8 @@ export default function VenueDetail() {
               <ServiceCard
                 key={service.id}
                 service={service}
-                selectedProvider={selectedProviders[service.id]}
-                onSelectProvider={handleSelectProvider}
+                selectedProviderIds={cartItems.filter((item) => item.serviceId === service.id).map((item) => item.providerId)}
+                onAddToCart={handleAddToCart}
                 selectedDate={selectedDate}
               />
             ))}
@@ -289,7 +319,7 @@ export default function VenueDetail() {
                 {hasSelectedProviders && (
                   <p className="text-sm text-gray-600 mt-1">
                     {t('venue.summary.services', {
-                      count: Object.values(selectedProviders).filter((v) => v).length
+                      count: cartItems.length
                     })}
                   </p>
                 )}
@@ -298,6 +328,56 @@ export default function VenueDetail() {
                 )}
                 <p className="text-xs text-gray-500 mt-2">{t('venue.summary.note')}</p>
               </div>
+            </div>
+
+            <div ref={cartSectionRef} className="w-full lg:w-[360px] border border-gray-200 rounded-lg p-3 sm:p-4 bg-gray-50">
+              <h4 className="font-semibold text-gray-900 mb-2">
+                {language === 'de' ? 'Warenkorb' : 'Cart'}
+              </h4>
+              {cartItems.length === 0 ? (
+                <p className="text-sm text-gray-600">
+                  {language === 'de' ? 'Noch keine Services hinzugefuegt.' : 'No services added yet.'}
+                </p>
+              ) : (
+                <div className="space-y-3 max-h-56 overflow-auto pr-1">
+                  {cartItems.map((item) => {
+                    const service = services.find((s) => s.id === item.serviceId);
+                    const provider = service?.providers.find((p) => p.id === item.providerId);
+                    if (!service || !provider) return null;
+
+                    return (
+                      <div key={`${item.serviceId}-${item.providerId}`} className="rounded-lg border border-gray-200 bg-white p-2.5">
+                        <p className="text-sm font-medium text-gray-900">{provider.name}</p>
+                        <p className="text-xs text-gray-500">{service.name}</p>
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          {service.category === 'catering' ? (
+                            <p className="text-xs text-gray-600">
+                              {language === 'de' ? 'Menge basiert auf Gaesten' : 'Quantity based on guests'}
+                            </p>
+                          ) : (
+                            <input
+                              type="number"
+                              min={1}
+                              max={20}
+                              value={item.quantity}
+                              onChange={(e) => handleUpdateCartQuantity(item.serviceId, item.providerId, Number.parseInt(e.target.value || '1', 10))}
+                              className="w-20 rounded border border-gray-300 px-2 py-1 text-sm"
+                            />
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveFromCart(item.serviceId, item.providerId)}
+                            className="inline-flex items-center gap-1 rounded border border-red-200 text-red-600 px-2 py-1 text-xs hover:bg-red-50"
+                          >
+                            <Trash2 className="size-3.5" />
+                            {language === 'de' ? 'Entfernen' : 'Remove'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <button
@@ -342,6 +422,15 @@ export default function VenueDetail() {
           className="fixed z-40 right-4 sm:right-6 bottom-24 sm:bottom-28 h-12 w-12 rounded-full bg-purple-600 text-white shadow-lg hover:bg-purple-700 transition-all duration-300 flex items-center justify-center animate-pulse"
         >
           <ArrowRight className="size-5" />
+        </button>
+
+        <button
+          type="button"
+          aria-label="Go to cart section"
+          onClick={guideToCart}
+          className="fixed z-40 right-4 sm:right-6 bottom-40 sm:bottom-44 rounded-full bg-white border border-purple-300 text-purple-700 px-3 py-1.5 text-xs font-semibold shadow-md hover:bg-purple-50 transition-colors"
+        >
+          {language === 'de' ? 'Warenkorb' : 'Cart'}
         </button>
 
         <div className="fixed z-30 right-4 sm:right-6 bottom-16 sm:bottom-20 rounded-full bg-white/95 border border-purple-200 px-3 py-1 text-[11px] text-purple-700 shadow-sm">

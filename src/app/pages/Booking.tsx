@@ -70,12 +70,13 @@ export default function Booking() {
     let total = bookingData.venue.price;
     const numGuests = parseInt(formData.guests, 10) || 0;
 
-    bookingData.selectedProviders.forEach((item: any) => {
+    (bookingData.selectedProviders || []).forEach((item: any) => {
+      const quantity = Number.isFinite(item.quantity) ? Math.max(1, item.quantity) : 1;
       if (item.service?.category === 'catering') {
         // Catering is per person and only scales once guest count is known.
         total += numGuests > 0 ? item.provider.price * numGuests : 0;
       } else {
-        total += item.provider.price;
+        total += item.provider.price * quantity;
       }
     });
 
@@ -375,14 +376,19 @@ export default function Booking() {
                     </div>
                   </div>
 
-                  {bookingData.selectedProviders.length > 0 && (
+                  {(bookingData.selectedProviders || []).length > 0 && (
                     <div>
                       <h3 className="font-semibold text-gray-900 mb-2">{t('booking.summary.services')}</h3>
                       <div className="space-y-3">
-                        {bookingData.selectedProviders.map((item: any, index: number) => (
+                        {(bookingData.selectedProviders || []).map((item: any, index: number) => (
                           <div key={index} className="bg-gray-50 p-4 rounded-lg">
                             <p className="text-sm font-medium text-purple-600 uppercase">{item.service.name}</p>
                             <p className="font-medium text-gray-900 mt-1">{item.provider.name}</p>
+                            {item.service?.category !== 'catering' && (
+                              <p className="text-xs text-gray-600 mt-1">
+                                Qty: {Number.isFinite(item.quantity) ? Math.max(1, item.quantity) : 1}
+                              </p>
+                            )}
                             <div className="flex items-center gap-1 mt-1">
                               <span className="text-sm text-gray-600">{t('booking.summary.rating')}:</span>
                               <span className="text-sm font-medium">{item.provider.rating} *</span>
