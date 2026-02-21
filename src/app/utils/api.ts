@@ -239,6 +239,7 @@ export function createVendorPost(payload: {
 export function updateVendorPost(
   postId: string,
   payload: Partial<{
+    vendorEmail: string;
     title: string;
     serviceName: string;
     description: string;

@@ -219,6 +219,9 @@ export default function CustomerPortfolio() {
 
                     {offer.status === 'accepted' && offer.paymentStatus !== 'paid' && (
                       <div className="mt-3">
+                        <p className="text-xs text-gray-500 mb-2">
+                          Zahlung ueber Stripe. Vendor-Auszahlung erfolgt automatisch, wenn Vendor Stripe Connect verknuepft hat.
+                        </p>
                         <button
                           type="button"
                           onClick={() => payOffer(request.id, offer.id)}

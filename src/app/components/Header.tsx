@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router';
-import { Calendar, MapPin, Home, Globe, BriefcaseBusiness, ShieldCheck, User, LogOut, Menu, X } from 'lucide-react';
+import { Calendar, MapPin, Home, Globe, BriefcaseBusiness, ShieldCheck, User, LogOut, Menu, X, ArrowLeft } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useEffect, useState } from 'react';
 import { clearAdminSession, clearCurrentUser, getAdminToken, getCurrentUser } from '../utils/auth';
@@ -36,14 +36,32 @@ export function Header() {
     navigate('/');
   };
 
+  const goBack = () => {
+    if (window.history.length > 1) navigate(-1);
+    else navigate('/');
+  };
+
   return (
     <header className="bg-white border-b sticky top-0 z-50">
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         <div className="flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2 min-w-0">
-            <Calendar className="size-8 text-purple-600" />
-            <span className="text-xl sm:text-2xl font-semibold text-gray-900 truncate">EventVenue</span>
-          </Link>
+          <div className="flex items-center gap-2 min-w-0">
+            {location.pathname !== '/' && (
+              <button
+                type="button"
+                onClick={goBack}
+                className="inline-flex items-center justify-center rounded-lg border border-gray-300 p-2 text-gray-700 hover:bg-gray-50"
+                aria-label="Back"
+                title="Back"
+              >
+                <ArrowLeft className="size-4" />
+              </button>
+            )}
+            <Link to="/" className="flex items-center gap-2 min-w-0">
+              <Calendar className="size-8 text-purple-600" />
+              <span className="text-xl sm:text-2xl font-semibold text-gray-900 truncate">EventVenue</span>
+            </Link>
+          </div>
 
           <nav className="hidden md:flex items-center gap-6">
             <Link
@@ -88,7 +106,7 @@ export function Header() {
 
           <div className="flex items-center gap-2 sm:gap-4">
             <div className="relative group">
-              <button className="flex items-center gap-2 text-gray-600 hover:text-purple-600 transition-colors px-3 py-2 rounded-lg hover:bg-gray-50">
+              <button type="button" className="flex items-center gap-2 text-gray-600 hover:text-purple-600 transition-colors px-3 py-2 rounded-lg hover:bg-gray-50">
                 <Globe className="size-5" />
                 <span className="hidden sm:inline">{languages.find((l) => l.code === language)?.name}</span>
               </button>
@@ -116,7 +134,7 @@ export function Header() {
             </Link>
             {currentRole ? (
               <div className="relative group">
-                <button className="inline-flex items-center gap-2 bg-white text-gray-800 border border-gray-300 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors">
+                <button type="button" className="inline-flex items-center gap-2 bg-white text-gray-800 border border-gray-300 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors">
                   <User className="size-4" />
                   <span className="max-w-[120px] truncate">{currentName || 'Konto'}</span>
                 </button>

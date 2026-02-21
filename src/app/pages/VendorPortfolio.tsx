@@ -203,7 +203,7 @@ export default function VendorPortfolio() {
 
   const togglePostActive = async (post: VendorPost) => {
     try {
-      await updateVendorPost(post.id, { isActive: !post.isActive });
+      await updateVendorPost(post.id, { vendorEmail, isActive: !post.isActive });
       await loadPosts(vendorEmail);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Fehler beim Aktualisieren des Posts.');
@@ -240,6 +240,7 @@ export default function VendorPortfolio() {
 
     try {
       await updateVendorPost(postId, {
+        vendorEmail,
         title: editPostForm.title.trim(),
         serviceName: editPostForm.serviceName.trim(),
         description: editPostForm.description.trim(),
@@ -333,7 +334,13 @@ export default function VendorPortfolio() {
               {vendorProfile.city && <p><strong>Stadt:</strong> {vendorProfile.city}</p>}
               {vendorProfile.websiteUrl && <p><strong>Website:</strong> {vendorProfile.websiteUrl}</p>}
               {vendorProfile.portfolioUrl && <p><strong>Portfolio URL:</strong> {vendorProfile.portfolioUrl}</p>}
+              <p><strong>Stripe Connect:</strong> {vendorProfile.stripeAccountId || 'Nicht verbunden'}</p>
             </div>
+            {!vendorProfile.stripeAccountId && (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                Keine Stripe Connect ID hinterlegt. Zahlungen gehen an die Plattform, Vendor-Auszahlung braucht `acct_...`.
+              </div>
+            )}
           </div>
         )}
 

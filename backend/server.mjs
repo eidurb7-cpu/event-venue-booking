@@ -924,8 +924,20 @@ createServer(async (req, res) => {
     if (req.method === 'PATCH' && path.match(/^\/api\/vendor\/posts\/[^/]+$/)) {
       const postId = path.split('/')[4];
       const body = await readBody(req);
+      const vendorEmail = (body.vendorEmail || '').trim();
+      if (!vendorEmail) return sendJson(res, 400, { error: 'vendorEmail is required' });
+      const vendor = await prisma.vendorApplication.findFirst({
+        where: { email: { equals: vendorEmail, mode: 'insensitive' } },
+      });
+      if (!vendor) return sendJson(res, 404, { error: 'Vendor profile not found' });
+      if (vendor.status !== 'approved') {
+        return sendJson(res, 403, { error: `Vendor account is ${vendor.status}. Admin approval required.` });
+      }
       const post = await prisma.vendorPost.findUnique({ where: { id: postId } });
       if (!post) return sendJson(res, 404, { error: 'Post not found' });
+      if (post.vendorApplicationId !== vendor.id) {
+        return sendJson(res, 403, { error: 'You can only edit your own posts' });
+      }
       const updated = await prisma.vendorPost.update({
         where: { id: postId },
         data: {
