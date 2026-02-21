@@ -107,7 +107,7 @@ export function ServiceCard({ service, selectedProviderIds = [], onAddToCart, se
                     onClick={() => onAddToCart?.(service.id, provider.id)}
                     className="rounded-lg bg-purple-600 text-white px-3 py-1.5 text-sm font-semibold hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                   >
-                    {isAdded ? (language === 'de' ? 'Mehr hinzufuegen' : 'Add more') : (language === 'de' ? 'Hinzufuegen' : 'Add')}
+                    {isAdded ? (language === 'de' ? 'Entfernen' : 'Remove') : (language === 'de' ? 'Hinzufuegen' : 'Add')}
                   </button>
                 </div>
 

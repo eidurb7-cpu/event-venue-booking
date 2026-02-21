@@ -4,6 +4,8 @@ import Home from './pages/Home';
 import Venues from './pages/Venues';
 import VenueDetail from './pages/VenueDetail';
 import Booking from './pages/Booking';
+import Cart from './pages/Cart';
+import CheckoutSuccess from './pages/CheckoutSuccess';
 import Services from './pages/Services';
 import RequestPage from './pages/RequestPage';
 import VendorPortfolio from './pages/VendorPortfolio';
@@ -53,6 +55,8 @@ export const router = createBrowserRouter([
       { path: 'booking-thread/:bookingId', Component: BookingThreadPage },
       { path: 'venue/:id', Component: VenueDetail },
       { path: 'booking', Component: Booking },
+      { path: 'cart', Component: Cart },
+      { path: 'checkout/success', Component: CheckoutSuccess },
       { path: '*', Component: NotFound },
     ],
   },

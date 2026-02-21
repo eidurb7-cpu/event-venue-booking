@@ -1,8 +1,9 @@
 import { Link, useLocation, useNavigate } from 'react-router';
-import { Calendar, MapPin, Home, Globe, BriefcaseBusiness, ShieldCheck, User, LogOut, Menu, X, ArrowLeft } from 'lucide-react';
+import { Calendar, MapPin, Home, Globe, BriefcaseBusiness, ShieldCheck, User, LogOut, Menu, X, ArrowLeft, ShoppingCart } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useEffect, useRef, useState } from 'react';
 import { clearAdminSession, clearCurrentUser, getAdminToken, getCurrentUser } from '../utils/auth';
+import { useCart } from '../context/CartContext';
 
 export function Header() {
   const location = useLocation();
@@ -14,6 +15,7 @@ export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(true);
+  const { cart } = useCart();
   const languageMenuRef = useRef<HTMLDivElement | null>(null);
   const lastScrollYRef = useRef(0);
   const revealTimeoutRef = useRef<number | null>(null);
@@ -84,6 +86,7 @@ export function Header() {
 
   const accountHref =
     currentRole === 'vendor' ? '/vendor-portfolio' : currentRole === 'admin' ? '/admin' : '/customer-portfolio';
+  const cartCount = (cart.venue ? 1 : 0) + cart.services.length;
 
   const logout = () => {
     if (currentRole === 'admin') clearAdminSession();
@@ -151,6 +154,18 @@ export function Header() {
               <BriefcaseBusiness className="size-4" />
               {t('nav.services')}
             </Link>
+            <Link
+              to="/cart"
+              className={`flex items-center gap-2 transition-colors ${
+                location.pathname === '/cart' ? 'text-purple-600' : 'text-gray-600 hover:text-purple-600'
+              }`}
+            >
+              <ShoppingCart className="size-4" />
+              Cart
+              {cartCount > 0 && (
+                <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs text-purple-700">{cartCount}</span>
+              )}
+            </Link>
             {isAdmin && (
               <Link
                 to="/admin"
@@ -198,6 +213,16 @@ export function Header() {
               className="hidden sm:inline-flex bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-black transition-colors"
             >
               {t('nav.request')}
+            </Link>
+            <Link
+              to="/cart"
+              className="hidden sm:inline-flex items-center gap-2 rounded-lg border border-purple-300 bg-white px-3 py-2 text-purple-700 hover:bg-purple-50"
+            >
+              <ShoppingCart className="size-4" />
+              Cart
+              {cartCount > 0 && (
+                <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs text-purple-700">{cartCount}</span>
+              )}
             </Link>
             {currentRole ? (
               <div className="relative group">
@@ -283,6 +308,16 @@ export function Header() {
               className="block rounded-lg px-3 py-2 text-gray-700 hover:bg-gray-50"
             >
               {t('nav.services')}
+            </Link>
+            <Link
+              to="/cart"
+              onClick={() => {
+                setMobileOpen(false);
+                setLanguageOpen(false);
+              }}
+              className="block rounded-lg px-3 py-2 text-gray-700 hover:bg-gray-50"
+            >
+              Cart ({cartCount})
             </Link>
             <Link
               to="/request"

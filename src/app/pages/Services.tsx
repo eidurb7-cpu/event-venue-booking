@@ -5,6 +5,7 @@ import { services, type Service } from '../data/mockData';
 import { useLanguage } from '../context/LanguageContext';
 import { PublicVendorPost, createRequest, getPublicVendorPosts } from '../utils/api';
 import { getCurrentUser } from '../utils/auth';
+import { useCart } from '../context/CartContext';
 import {
   Dialog,
   DialogContent,
@@ -30,13 +31,6 @@ type ProviderRow = {
   specialties: string[];
 };
 
-type ServiceCartItem = {
-  row: ProviderRow;
-  quantity: number;
-};
-
-const SERVICE_CART_STORAGE_KEY = 'servicesCart:v1';
-
 const categoryConfig: Array<{
   id: CategoryFilter;
   icon: ComponentType<{ className?: string }>;
@@ -53,6 +47,7 @@ const categoryConfig: Array<{
 export default function Services() {
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const { cart, toggleService, removeService, hasService, total } = useCart();
   const [category, setCategory] = useState<CategoryFilter>('all');
   const [search, setSearch] = useState('');
   const [minRating, setMinRating] = useState(0);
@@ -71,7 +66,6 @@ export default function Services() {
   const [offerError, setOfferError] = useState('');
   const [offerSaving, setOfferSaving] = useState(false);
   const [publicPosts, setPublicPosts] = useState<PublicVendorPost[]>([]);
-  const [cartItems, setCartItems] = useState<ServiceCartItem[]>([]);
   const cartSectionRef = useRef<HTMLElement | null>(null);
   const currentUser = getCurrentUser();
   const isVendorViewOnly = currentUser?.role === 'vendor';
@@ -105,30 +99,6 @@ export default function Services() {
       .then((data) => setPublicPosts(data.posts))
       .catch(() => setPublicPosts([]));
   }, []);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(SERVICE_CART_STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as ServiceCartItem[];
-      if (!Array.isArray(parsed)) return;
-      const validItems = parsed.filter(
-        (item) =>
-          item &&
-          item.row &&
-          typeof item.row.providerId === 'string' &&
-          typeof item.row.serviceId === 'string' &&
-          Number.isFinite(item.quantity)
-      );
-      setCartItems(validItems.map((item) => ({ ...item, quantity: Math.max(1, Math.min(20, item.quantity)) })));
-    } catch {
-      // Ignore invalid saved cart.
-    }
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem(SERVICE_CART_STORAGE_KEY, JSON.stringify(cartItems));
-  }, [cartItems]);
 
   useEffect(() => {
     setMaxPrice((prev) => {
@@ -236,54 +206,23 @@ export default function Services() {
     }
   };
 
+  const toServiceCartId = (row: ProviderRow) => `${row.serviceId}:${row.providerId}`;
+
   const handleAddToCart = (row: ProviderRow) => {
-    setCartItems((prev) => {
-      const index = prev.findIndex((item) => item.row.providerId === row.providerId && item.row.serviceId === row.serviceId);
-      if (index >= 0) {
-        return prev.map((item, i) => (i === index ? { ...item, quantity: Math.min(item.quantity + 1, 20) } : item));
-      }
-      return [...prev, { row, quantity: 1 }];
+    toggleService({
+      id: toServiceCartId(row),
+      title: `${row.serviceName} - ${row.providerName}`,
+      price: row.providerPrice,
+      category: row.serviceCategory,
+      serviceId: row.serviceId,
+      providerId: row.providerId,
     });
   };
-
-  const handleRemoveFromCart = (providerId: string, serviceId: string) => {
-    setCartItems((prev) => prev.filter((item) => !(item.row.providerId === providerId && item.row.serviceId === serviceId)));
-  };
-
-  const handleChangeQuantity = (providerId: string, serviceId: string, quantity: number) => {
-    const safeQty = Number.isFinite(quantity) ? Math.max(1, Math.min(20, quantity)) : 1;
-    setCartItems((prev) =>
-      prev.map((item) =>
-        item.row.providerId === providerId && item.row.serviceId === serviceId ? { ...item, quantity: safeQty } : item
-      )
-    );
-  };
-
-  const cartTotal = useMemo(() => {
-    return cartItems.reduce((sum, item) => {
-      const qty = item.row.serviceCategory === 'catering' ? 1 : item.quantity;
-      return sum + item.row.providerPrice * qty;
-    }, 0);
-  }, [cartItems]);
 
   const handleCompleteServiceBooking = () => {
     if (isBookingBlockedForRole) return;
-    if (cartItems.length === 0) return;
-
-    const selectedCategories = Array.from(new Set(cartItems.map((item) => item.row.serviceCategory)));
-    const lines = cartItems.map((item) => {
-      const qty = item.row.serviceCategory === 'catering' ? 'per-person' : `qty ${item.quantity}`;
-      return `${item.row.serviceName}: ${item.row.providerName} (${qty})`;
-    });
-
-    const draft = {
-      selectedServices: selectedCategories,
-      budget: String(cartTotal),
-      notes: `Selected service cart:\n${lines.join('\n')}`,
-    };
-
-    sessionStorage.setItem('serviceRequestDraft', JSON.stringify(draft));
-    navigate('/request');
+    if (cart.services.length === 0 && !cart.venue) return;
+    navigate('/cart');
   };
 
   const scrollToCart = () => {
@@ -407,40 +346,23 @@ export default function Services() {
           <div className="p-3 border-b border-gray-100 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <ShoppingCart className="size-4 text-purple-700" />
-              <p className="text-sm font-semibold text-gray-900">Services Cart ({cartItems.length})</p>
+              <p className="text-sm font-semibold text-gray-900">Services Cart ({cart.services.length})</p>
             </div>
-            <p className="text-sm font-bold text-purple-700">EUR {cartTotal.toLocaleString()}</p>
+            <p className="text-sm font-bold text-purple-700">EUR {total.toLocaleString()}</p>
           </div>
-          {cartItems.length === 0 ? (
+          {cart.services.length === 0 ? (
             <p className="p-3 text-sm text-gray-600">Add services from the list below.</p>
           ) : (
             <div className="max-h-52 overflow-auto p-3 space-y-2">
-              {cartItems.map((item) => (
-                <div key={`${item.row.serviceId}-${item.row.providerId}`} className="rounded-lg border border-gray-200 p-2.5">
-                  <p className="text-sm font-medium text-gray-900">{item.row.providerName}</p>
-                  <p className="text-xs text-gray-600">{item.row.serviceName}</p>
+              {cart.services.map((item) => (
+                <div key={item.id} className="rounded-lg border border-gray-200 p-2.5">
+                  <p className="text-sm font-medium text-gray-900">{item.title}</p>
+                  <p className="text-xs text-gray-600">{item.category}</p>
                   <div className="mt-2 flex items-center justify-between gap-2">
-                    {item.row.serviceCategory === 'catering' ? (
-                      <p className="text-xs text-gray-500">Catering uses guests on request form.</p>
-                    ) : (
-                      <input
-                        type="number"
-                        min={1}
-                        max={20}
-                        value={item.quantity}
-                        onChange={(e) =>
-                          handleChangeQuantity(
-                            item.row.providerId,
-                            item.row.serviceId,
-                            Number.parseInt(e.target.value || '1', 10)
-                          )
-                        }
-                        className="w-20 rounded border border-gray-300 px-2 py-1 text-sm"
-                      />
-                    )}
+                    <p className="text-sm text-gray-700">EUR {item.price.toLocaleString()}</p>
                     <button
                       type="button"
-                      onClick={() => handleRemoveFromCart(item.row.providerId, item.row.serviceId)}
+                      onClick={() => removeService(item.id)}
                       className="inline-flex items-center gap-1 rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50"
                     >
                       <Trash2 className="size-3.5" />
@@ -455,10 +377,10 @@ export default function Services() {
             <button
               type="button"
               onClick={handleCompleteServiceBooking}
-              disabled={cartItems.length === 0 || isBookingBlockedForRole}
+              disabled={(cart.services.length === 0 && !cart.venue) || isBookingBlockedForRole}
               className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 text-white py-2.5 text-sm font-semibold hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
             >
-              {isBookingBlockedForRole ? 'Customers only' : 'Complete booking'}
+              {isBookingBlockedForRole ? 'Customers only' : 'Go to cart'}
               <ArrowRight className="size-4" />
             </button>
           </div>
@@ -476,8 +398,10 @@ export default function Services() {
 
         {filteredProviders.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {filteredProviders.map((row) => (
-              <div key={row.providerId} className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+            {filteredProviders.map((row) => {
+              const selected = hasService(toServiceCartId(row));
+              return (
+                <div key={`${row.serviceId}:${row.providerId}`} className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
                 <p className="text-xs uppercase font-semibold text-purple-600">{row.serviceName}</p>
                 <h3 className="text-lg font-semibold text-gray-900 mt-1">{row.providerName}</h3>
                 <div className="mt-2 text-sm text-gray-600">
@@ -510,7 +434,11 @@ export default function Services() {
                     disabled={isBookingBlockedForRole}
                     className="rounded-lg bg-purple-600 text-white py-2.5 text-sm font-medium hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
                   >
-                    {isBookingBlockedForRole ? 'Nur Ansicht (Vendor/Admin)' : 'Add to cart'}
+                    {isBookingBlockedForRole
+                      ? 'Nur Ansicht (Vendor/Admin)'
+                      : selected
+                        ? 'Selected (click to remove)'
+                        : 'Add to cart'}
                   </button>
                   <button
                     type="button"
@@ -529,8 +457,9 @@ export default function Services() {
                 >
                   {isVendorViewOnly ? 'Offer disabled for vendor' : t('services.card.offerButton')}
                 </button>
-              </div>
-            ))}
+                </div>
+              );
+            })}
           </div>
         ) : (
           <div className="rounded-xl bg-white border border-gray-200 p-12 text-center text-gray-600">

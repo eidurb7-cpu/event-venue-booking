@@ -828,6 +828,69 @@ createServer(async (req, res) => {
       });
     }
 
+    if (req.method === 'POST' && (path === '/api/stripe/checkout' || path === '/api/cart/checkout-session')) {
+      if (enforceRateLimit(req, res, 'payment')) return;
+      if (!stripe) {
+        return sendJson(res, 400, { error: 'Stripe is not configured' });
+      }
+
+      const body = await readBody(req);
+      const cart = body?.cart || {};
+      const venue = cart?.venue || null;
+      const services = Array.isArray(cart?.services) ? cart.services : [];
+      const successUrl = normalizeOptionalString(body?.successUrl, 500) || `${FRONTEND_BASE_URL}/checkout/success`;
+      const cancelUrl = normalizeOptionalString(body?.cancelUrl, 500) || `${FRONTEND_BASE_URL}/cart`;
+
+      if (!venue || !venue.id || !Number.isFinite(Number(venue.price)) || Number(venue.price) <= 0) {
+        return sendJson(res, 400, { error: 'Missing or invalid venue in cart' });
+      }
+
+      const lineItems = [
+        {
+          quantity: 1,
+          price_data: {
+            currency: 'eur',
+            unit_amount: Math.round(Number(venue.price) * 100),
+            product_data: {
+              name: `Venue: ${String(venue.title || venue.name || venue.id).slice(0, 120)}`,
+            },
+          },
+        },
+      ];
+
+      for (const item of services) {
+        const price = Number(item?.price);
+        if (!item || !item.id || !Number.isFinite(price) || price <= 0) continue;
+        lineItems.push({
+          quantity: 1,
+          price_data: {
+            currency: 'eur',
+            unit_amount: Math.round(price * 100),
+            product_data: {
+              name: `Service: ${String(item.title || item.id).slice(0, 120)}`,
+            },
+          },
+        });
+      }
+
+      const session = await stripe.checkout.sessions.create({
+        mode: 'payment',
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        line_items: lineItems,
+        metadata: {
+          source: 'web_cart',
+          venueId: String(venue.id),
+          services: JSON.stringify(services.map((s) => s?.id).filter(Boolean)).slice(0, 500),
+        },
+      });
+
+      return sendJson(res, 200, {
+        sessionId: session.id,
+        url: session.url,
+      });
+    }
+
     if (req.method === 'POST' && path === '/api/stripe/connect/onboard') {
       if (!stripe) {
         return sendJson(res, 400, { error: 'Stripe is not configured' });
