@@ -18,8 +18,26 @@ import {
   updateVendorPost,
 } from '../utils/api';
 import { getCurrentUser } from '../utils/auth';
+import { useLanguage } from '../context/LanguageContext';
 
 export default function VendorPortfolio() {
+  const { language } = useLanguage();
+  const isDe = language === 'de';
+  const tx = {
+    loginRequired: isDe ? 'Vendor Login erforderlich' : 'Vendor login required',
+    loginPrompt: isDe ? 'Bitte melde dich als Vendor an, um dein Dashboard zu sehen.' : 'Please sign in as a vendor to view your dashboard.',
+    toLogin: isDe ? 'Zum Login' : 'Go to login',
+    signup: isDe ? 'Vendor registrieren' : 'Register as vendor',
+    dashboard: isDe ? 'Vendor Dashboard' : 'Vendor Dashboard',
+    pendingInfo: isDe ? 'Bitte warten, bis Admin deine Bewerbung freigibt.' : 'Please wait until admin reviews your application.',
+    rejectedInfo: isDe ? 'Deine Bewerbung wurde abgelehnt. Bitte Admin kontaktieren.' : 'Your application was rejected. Please contact admin.',
+    statusApproved: isDe ? 'Du kannst jetzt Angebote senden und deine Services verwalten.' : 'You can now send offers and manage your services.',
+    account: isDe ? 'Mein Account' : 'My account',
+    sendToAdmin: isDe ? 'Anfrage an Admin senden' : 'Send inquiry to admin',
+    servicePosts: isDe ? 'Meine Service-Posts & Verfuegbarkeit' : 'My service posts and availability',
+    openRequests: isDe ? 'Offene Kundenanfragen' : 'Open customer requests',
+    myOffers: isDe ? 'Meine gesendeten Angebote' : 'My sent offers',
+  };
   const [vendorName, setVendorName] = useState('');
   const [vendorEmail, setVendorEmail] = useState('');
   const [manualEmail, setManualEmail] = useState('');
@@ -299,18 +317,18 @@ export default function VendorPortfolio() {
       <div className="min-h-screen bg-gray-50 py-12">
         <div className="container mx-auto px-4 max-w-3xl">
           <div className="bg-white rounded-xl border border-gray-200 p-8">
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Vendor Login erforderlich</h1>
-            <p className="text-gray-600 mb-4">Bitte melde dich als Vendor an, um dein Dashboard zu sehen.</p>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">{tx.loginRequired}</h1>
+            <p className="text-gray-600 mb-4">{tx.loginPrompt}</p>
             <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => navigate('/login')}
                 className="rounded-lg bg-purple-600 text-white px-4 py-2.5 hover:bg-purple-700"
               >
-                Zum Login
+                {tx.toLogin}
               </button>
               <Link to="/signup" className="rounded-lg border border-gray-300 px-4 py-2.5 hover:bg-gray-50">
-                Vendor registrieren
+                {tx.signup}
               </Link>
             </div>
             {error && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
@@ -325,9 +343,9 @@ export default function VendorPortfolio() {
       <div className="min-h-screen bg-gray-50 py-12">
         <div className="container mx-auto px-4 max-w-3xl">
           <div className="bg-white rounded-xl border border-yellow-200 bg-yellow-50 p-8">
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Vendor Dashboard</h1>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">{tx.dashboard}</h1>
             <p className="text-gray-800">
-              Dein Konto ist aktuell <strong>{vendorProfile?.status || 'pending_review'}</strong>. Bitte warten, bis Admin deine Bewerbung freigibt.
+              {isDe ? 'Dein Konto ist aktuell ' : 'Your account status is '}<strong>{vendorProfile?.status || 'pending_review'}</strong>. {tx.pendingInfo}
             </p>
             <div className="mt-4 rounded-lg border border-yellow-200 bg-white p-4 text-sm text-gray-700 space-y-1">
               <p><strong>Business:</strong> {vendorProfile.businessName}</p>
@@ -344,7 +362,7 @@ export default function VendorPortfolio() {
               )}
             </div>
             {vendorProfile.status === 'rejected' && (
-              <p className="text-gray-700 mt-2">Deine Bewerbung wurde abgelehnt. Bitte Admin kontaktieren.</p>
+              <p className="text-gray-700 mt-2">{tx.rejectedInfo}</p>
             )}
           </div>
         </div>
@@ -356,14 +374,14 @@ export default function VendorPortfolio() {
     <div className="min-h-screen bg-gray-50 py-12">
       <div className="container mx-auto px-4 max-w-6xl space-y-6">
         <div className="bg-white rounded-xl shadow-md p-6">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Vendor Dashboard</h1>
-          <p className="text-gray-600">Status: approved. Du kannst jetzt Angebote senden und deine Services verwalten.</p>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">{tx.dashboard}</h1>
+          <p className="text-gray-600">Status: approved. {tx.statusApproved}</p>
           {error && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
         </div>
 
         {vendorProfile && (
           <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-3">Mein Account</h2>
+            <h2 className="text-xl font-semibold text-gray-900 mb-3">{tx.account}</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-gray-700">
               <p><strong>Status:</strong> {vendorProfile.status}</p>
               <p><strong>Business:</strong> {vendorProfile.businessName}</p>
@@ -412,7 +430,7 @@ export default function VendorPortfolio() {
         )}
 
         <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Anfrage an Admin senden</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">{tx.sendToAdmin}</h2>
           <div className="grid grid-cols-1 gap-3">
             <input
               type="text"
@@ -435,7 +453,7 @@ export default function VendorPortfolio() {
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Meine Service-Posts & Verfuegbarkeit</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">{tx.servicePosts}</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
             <input
               type="text"
@@ -586,7 +604,7 @@ export default function VendorPortfolio() {
         </div>
 
         <div className="space-y-4">
-          <h2 className="text-2xl font-semibold text-gray-900">Offene Kundenanfragen</h2>
+          <h2 className="text-2xl font-semibold text-gray-900">{tx.openRequests}</h2>
           {loading && (
             <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-600">
               Lade offene Anfragen...
@@ -640,7 +658,7 @@ export default function VendorPortfolio() {
         </div>
 
         <div className="space-y-4">
-          <h2 className="text-2xl font-semibold text-gray-900">Meine gesendeten Angebote</h2>
+          <h2 className="text-2xl font-semibold text-gray-900">{tx.myOffers}</h2>
           {offersLoading && (
             <div className="bg-white rounded-xl border border-gray-200 p-6 text-center text-gray-600">Lade deine Angebote...</div>
           )}

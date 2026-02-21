@@ -2,8 +2,39 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { ServiceRequest, createStripeCheckoutSession, getCustomerRequests, setOfferStatus } from '../utils/api';
 import { getCurrentUser } from '../utils/auth';
+import { useLanguage } from '../context/LanguageContext';
 
 export default function CustomerPortfolio() {
+  const { language } = useLanguage();
+  const isDe = language === 'de';
+  const tx = {
+    title: isDe ? 'Kundenkonto' : 'Customer Portfolio',
+    subtitle: isDe ? 'Anfragen verwalten und Vendor-Angebote akzeptieren oder ignorieren.' : 'Manage requests and accept or ignore vendor offers.',
+    signedInAs: isDe ? 'Eingeloggt als' : 'Signed in as',
+    offerContact: isDe ? 'Kontakt fuer Angebote' : 'Offer contact',
+    emailPlaceholder: isDe ? 'Deine E-Mail fuer den Portfolio-Zugriff' : 'Your email for portfolio access',
+    load: isDe ? 'Portfolio laden' : 'Load portfolio',
+    invoices: isDe ? 'Rechnungen anzeigen' : 'View invoices',
+    loading: isDe ? 'Lade Anfragen...' : 'Loading requests...',
+    empty: isDe ? 'Keine Anfragen fuer diese E-Mail gefunden.' : 'No requests found for this email.',
+    services: isDe ? 'Services' : 'Services',
+    budget: isDe ? 'Budget' : 'Budget',
+    contactEmail: isDe ? 'Kontakt E-Mail' : 'Contact email',
+    contactPhone: isDe ? 'Kontakt Telefon' : 'Contact phone',
+    eventDate: isDe ? 'Event-Datum' : 'Event date',
+    address: isDe ? 'Adresse' : 'Address',
+    details: isDe ? 'Details' : 'Details',
+    deadline: isDe ? 'Frist bis' : 'Deadline',
+    noOffers: isDe ? 'Noch keine Vendor-Angebote.' : 'No vendor offers yet.',
+    price: isDe ? 'Preis' : 'Price',
+    payment: isDe ? 'Zahlung' : 'Payment',
+    accept: isDe ? 'Akzeptieren' : 'Accept',
+    ignore: isDe ? 'Ignorieren' : 'Ignore',
+    decline: isDe ? 'Ablehnen' : 'Decline',
+    stripeNote: isDe ? 'Zahlung ueber Stripe. Vendor-Auszahlung erfolgt automatisch, wenn Vendor Stripe Connect verknuepft hat.' : 'Payment via Stripe. Vendor payout runs automatically when Stripe Connect is linked.',
+    pay: isDe ? 'Mit Stripe bezahlen' : 'Pay with Stripe',
+    paid: isDe ? 'Zahlung erfolgreich abgeschlossen.' : 'Payment completed successfully.',
+  };
   const [customerEmail, setCustomerEmail] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [isCustomerSession, setIsCustomerSession] = useState(false);
@@ -74,21 +105,21 @@ export default function CustomerPortfolio() {
     <div className="min-h-screen bg-gray-50 py-6 sm:py-12">
       <div className="container mx-auto px-4 max-w-5xl">
         <div className="bg-white rounded-xl shadow-md p-5 sm:p-8 mb-6">
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Customer Portfolio</h1>
-          <p className="text-gray-600 mb-5">Anfragen verwalten und Vendor-Angebote akzeptieren oder ignorieren.</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">{tx.title}</h1>
+          <p className="text-gray-600 mb-5">{tx.subtitle}</p>
           {isCustomerSession && (
             <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
-              Eingeloggt als {customerName || customerEmail} ({customerEmail})
+              {tx.signedInAs} {customerName || customerEmail} ({customerEmail})
             </div>
           )}
           {customerEmail && (
             <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
-              Kontakt fuer Angebote: <strong>{customerEmail}</strong>
+              {tx.offerContact}: <strong>{customerEmail}</strong>
             </div>
           )}
           <input
             type="email"
-            placeholder="Deine E-Mail fuer den Portfolio-Zugriff"
+            placeholder={tx.emailPlaceholder}
             value={customerEmail}
             onChange={(e) => {
               const value = e.target.value;
@@ -103,11 +134,11 @@ export default function CustomerPortfolio() {
             onClick={() => loadRequests(customerEmail)}
             className="mt-3 w-full sm:w-auto rounded-lg bg-purple-600 text-white px-4 py-2.5 hover:bg-purple-700"
           >
-            Portfolio laden
+            {tx.load}
           </button>
           <div className="mt-3">
             <Link to="/invoices" className="text-sm text-purple-600 hover:text-purple-700">
-              Rechnungen anzeigen
+              {tx.invoices}
             </Link>
           </div>
         </div>
@@ -120,13 +151,13 @@ export default function CustomerPortfolio() {
 
         {loading && (
           <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-600">
-            Lade Anfragen...
+            {tx.loading}
           </div>
         )}
 
         {!loading && customerEmail.trim() && requests.length === 0 && (
           <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-600">
-            Keine Anfragen fuer diese E-Mail gefunden.
+            {tx.empty}
           </div>
         )}
 
@@ -148,22 +179,22 @@ export default function CustomerPortfolio() {
                 </span>
               </div>
               <p className="text-sm text-gray-700 mt-2">
-                Services: {request.selectedServices.join(', ')} | Budget: EUR {request.budget.toLocaleString()}
+                {tx.services}: {request.selectedServices.join(', ')} | {tx.budget}: EUR {request.budget.toLocaleString()}
               </p>
-              <p className="text-sm text-gray-600 mt-1">Kontakt E-Mail: {request.customerEmail}</p>
-              {request.customerPhone && <p className="text-sm text-gray-600 mt-1">Kontakt Telefon: {request.customerPhone}</p>}
+              <p className="text-sm text-gray-600 mt-1">{tx.contactEmail}: {request.customerEmail}</p>
+              {request.customerPhone && <p className="text-sm text-gray-600 mt-1">{tx.contactPhone}: {request.customerPhone}</p>}
               {request.eventDate && (
-                <p className="text-sm text-gray-600 mt-1">Event-Datum: {new Date(request.eventDate).toLocaleDateString()}</p>
+                <p className="text-sm text-gray-600 mt-1">{tx.eventDate}: {new Date(request.eventDate).toLocaleDateString()}</p>
               )}
-              {request.address && <p className="text-sm text-gray-600 mt-1">Adresse: {request.address}</p>}
-              {request.notes && <p className="text-sm text-gray-600 mt-1">Details: {request.notes}</p>}
+              {request.address && <p className="text-sm text-gray-600 mt-1">{tx.address}: {request.address}</p>}
+              {request.notes && <p className="text-sm text-gray-600 mt-1">{tx.details}: {request.notes}</p>}
               <p className="text-sm text-gray-600 mt-1">
-                Frist bis: {new Date(request.expiresAt).toLocaleString()}
+                {tx.deadline}: {new Date(request.expiresAt).toLocaleString()}
               </p>
 
               <div className="mt-4 space-y-3">
                 {request.offers.length === 0 && (
-                  <div className="text-sm text-gray-500">Noch keine Vendor-Angebote.</div>
+                  <div className="text-sm text-gray-500">{tx.noOffers}</div>
                 )}
 
                 {request.offers.map((offer) => (
@@ -184,10 +215,10 @@ export default function CustomerPortfolio() {
                         {offer.status}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-700 mt-1">Preis: EUR {offer.price.toLocaleString()}</p>
+                    <p className="text-sm text-gray-700 mt-1">{tx.price}: EUR {offer.price.toLocaleString()}</p>
                     {offer.message && <p className="text-sm text-gray-600 mt-1">{offer.message}</p>}
                     <p className="text-sm text-gray-600 mt-1">
-                      Zahlung: {offer.paymentStatus}
+                      {tx.payment}: {offer.paymentStatus}
                       {offer.paidAt ? ` (${new Date(offer.paidAt).toLocaleString()})` : ''}
                     </p>
 
@@ -198,21 +229,21 @@ export default function CustomerPortfolio() {
                           onClick={() => decide(request.id, offer.id, 'accepted')}
                           className="rounded-lg bg-green-600 text-white px-3 py-2 text-sm hover:bg-green-700 w-full sm:w-auto"
                         >
-                          Akzeptieren
+                          {tx.accept}
                         </button>
                         <button
                           type="button"
                           onClick={() => decide(request.id, offer.id, 'ignored')}
                           className="rounded-lg bg-gray-200 text-gray-800 px-3 py-2 text-sm hover:bg-gray-300 w-full sm:w-auto"
                         >
-                          Ignorieren
+                          {tx.ignore}
                         </button>
                         <button
                           type="button"
                           onClick={() => decide(request.id, offer.id, 'declined')}
                           className="rounded-lg bg-red-100 text-red-700 px-3 py-2 text-sm hover:bg-red-200 w-full sm:w-auto"
                         >
-                          Ablehnen
+                          {tx.decline}
                         </button>
                       </div>
                     )}
@@ -220,21 +251,21 @@ export default function CustomerPortfolio() {
                     {offer.status === 'accepted' && offer.paymentStatus !== 'paid' && (
                       <div className="mt-3">
                         <p className="text-xs text-gray-500 mb-2">
-                          Zahlung ueber Stripe. Vendor-Auszahlung erfolgt automatisch, wenn Vendor Stripe Connect verknuepft hat.
+                          {tx.stripeNote}
                         </p>
                         <button
                           type="button"
                           onClick={() => payOffer(request.id, offer.id)}
                           className="rounded-lg bg-purple-600 text-white px-3 py-2 text-sm hover:bg-purple-700"
                         >
-                          Mit Stripe bezahlen
+                          {tx.pay}
                         </button>
                       </div>
                     )}
 
                     {offer.status === 'accepted' && offer.paymentStatus === 'paid' && (
                       <div className="mt-3 rounded-lg bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-700">
-                        Zahlung erfolgreich abgeschlossen.
+                        {tx.paid}
                       </div>
                     )}
                   </div>

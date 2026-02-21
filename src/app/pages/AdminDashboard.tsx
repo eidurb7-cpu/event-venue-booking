@@ -14,6 +14,7 @@ import {
   updateVendorApplicationStatus,
 } from '../utils/api';
 import { clearAdminSession, getAdminToken, getAdminUser, setAdminSession } from '../utils/auth';
+import { useLanguage } from '../context/LanguageContext';
 
 type Overview = {
   customers: number;
@@ -25,6 +26,26 @@ type Overview = {
 };
 
 export default function AdminDashboard() {
+  const { language } = useLanguage();
+  const isDe = language === 'de';
+  const tx = {
+    title: isDe ? 'Admin Dashboard' : 'Admin Dashboard',
+    loginPrompt: isDe ? 'Bitte als Admin einloggen, um Backend-Daten zu verwalten.' : 'Please sign in as admin to manage backend data.',
+    loginEmail: isDe ? 'Admin E-Mail' : 'Admin email',
+    loginPassword: isDe ? 'Admin Passwort' : 'Admin password',
+    wait: isDe ? 'Bitte warten...' : 'Please wait...',
+    login: isDe ? 'Admin Login' : 'Admin login',
+    refresh: isDe ? 'Aktualisieren' : 'Refresh',
+    seedServices: isDe ? 'Services seeden' : 'Seed services',
+    seedVendors: isDe ? 'Demo Vendors seeden' : 'Seed demo vendors',
+    openApplications: isDe ? 'Bewerbungen oeffnen' : 'Open applications',
+    openProposals: isDe ? 'Proposals oeffnen' : 'Open proposals',
+    logout: isDe ? 'Logout' : 'Logout',
+    analytics: isDe ? 'Algorithmische Analysen' : 'Algorithmic Analytics',
+    applications: isDe ? 'Vendor-Bewerbungen' : 'Vendor Applications',
+    requests: isDe ? 'Requests und Offers' : 'Requests and Offers',
+    inquiries: isDe ? 'Vendor Inquiries an Admin' : 'Vendor inquiries to admin',
+  };
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [adminToken, setAdminToken] = useState('');
@@ -222,7 +243,7 @@ export default function AdminDashboard() {
         <div className="container mx-auto px-4 max-w-lg">
           <div className="bg-white rounded-xl shadow-md p-8">
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Admin Dashboard</h1>
-            <p className="text-gray-600 mb-6">Bitte als Admin einloggen, um Backend-Daten zu verwalten.</p>
+            <p className="text-gray-600 mb-6">{tx.loginPrompt}</p>
             <form
               className="space-y-4"
               onSubmit={(e) => {
@@ -232,14 +253,14 @@ export default function AdminDashboard() {
             >
               <input
                 type="email"
-                placeholder="Admin E-Mail"
+                placeholder={tx.loginEmail}
                 value={adminEmail}
                 onChange={(e) => setAdminEmail(e.target.value)}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
               />
               <input
                 type="password"
-                placeholder="Admin Passwort"
+                placeholder={tx.loginPassword}
                 value={adminPassword}
                 onChange={(e) => setAdminPassword(e.target.value)}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
@@ -249,7 +270,7 @@ export default function AdminDashboard() {
                 disabled={loading}
                 className="w-full rounded-lg bg-purple-600 text-white py-2.5 font-medium hover:bg-purple-700"
               >
-                {loading ? 'Bitte warten...' : 'Admin Login'}
+                {loading ? tx.wait : tx.login}
               </button>
               {error && (
                 <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -269,8 +290,8 @@ export default function AdminDashboard() {
         <div className="bg-white rounded-xl shadow-md p-6">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
-              <p className="text-gray-600 mt-1">Backend Uebersicht, Vendor-Freigaben und Offer-Management. {adminName ? `Eingeloggt als ${adminName}` : ''}</p>
+              <h1 className="text-3xl font-bold text-gray-900">{tx.title}</h1>
+              <p className="text-gray-600 mt-1">{isDe ? 'Backend Uebersicht, Vendor-Freigaben und Offer-Management.' : 'Backend overview, vendor approvals, and offer management.'} {adminName ? `${isDe ? 'Eingeloggt als' : 'Signed in as'} ${adminName}` : ''}</p>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -278,42 +299,42 @@ export default function AdminDashboard() {
                 onClick={() => loadDashboard()}
                 className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm hover:bg-gray-50"
               >
-                Aktualisieren
+                {tx.refresh}
               </button>
               <button
                 type="button"
                 onClick={seedServices}
                 className="rounded-lg border border-purple-300 text-purple-700 px-4 py-2.5 text-sm hover:bg-purple-50"
               >
-                Services seeden
+                {tx.seedServices}
               </button>
               <button
                 type="button"
                 onClick={seedVendors}
                 className="rounded-lg border border-green-300 text-green-700 px-4 py-2.5 text-sm hover:bg-green-50"
               >
-                Demo Vendors seeden
+                {tx.seedVendors}
               </button>
               <button
                 type="button"
                 onClick={() => jumpTo('admin-applications')}
                 className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm hover:bg-gray-50"
               >
-                Bewerbungen oeffnen
+                {tx.openApplications}
               </button>
               <button
                 type="button"
                 onClick={() => jumpTo('admin-requests')}
                 className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm hover:bg-gray-50"
               >
-                Proposals oeffnen
+                {tx.openProposals}
               </button>
               <button
                 type="button"
                 onClick={logout}
                 className="rounded-lg bg-gray-900 text-white px-4 py-2.5 text-sm hover:bg-black"
               >
-                Logout
+                {tx.logout}
               </button>
             </div>
           </div>
@@ -336,7 +357,7 @@ export default function AdminDashboard() {
         )}
 
         <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Algorithmic Analytics</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">{tx.analytics}</h2>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
             <div className="rounded-lg border border-gray-200 p-4">
               <p className="text-sm text-gray-600">Platform Health Score</p>
@@ -403,7 +424,7 @@ export default function AdminDashboard() {
         </div>
 
         <div id="admin-applications" className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Vendor-Bewerbungen</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">{tx.applications}</h2>
           {loading && <p className="text-gray-600">Lade Daten...</p>}
           {!loading && applications.length === 0 && <p className="text-gray-600">Keine Vendor-Bewerbungen gefunden.</p>}
           <div className="space-y-4">
@@ -488,7 +509,7 @@ export default function AdminDashboard() {
         </div>
 
         <div id="admin-requests" className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Requests und Offers</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">{tx.requests}</h2>
           {loading && <p className="text-gray-600">Lade Daten...</p>}
           {!loading && requests.length === 0 && <p className="text-gray-600">Keine Requests gefunden.</p>}
           <div className="space-y-5">
@@ -595,7 +616,7 @@ export default function AdminDashboard() {
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Vendor Inquiries an Admin</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">{tx.inquiries}</h2>
           {inquiries.length === 0 && <p className="text-gray-600">Keine Vendor-Anfragen vorhanden.</p>}
           <div className="space-y-3">
             {inquiries.map((inq) => (

@@ -20,6 +20,8 @@ export default function VenueDetail() {
   const [estimatedGuests, setEstimatedGuests] = useState('50');
   const datePickerRef = useRef<HTMLDivElement | null>(null);
   const checkoutSectionRef = useRef<HTMLDivElement | null>(null);
+  const currentUser = getCurrentUser();
+  const isBookingBlockedForRole = currentUser?.role === 'vendor' || currentUser?.role === 'admin';
 
   if (!venue) {
     return (
@@ -65,7 +67,6 @@ export default function VenueDetail() {
   };
 
   const handleProceedToBooking = () => {
-    const currentUser = getCurrentUser();
     if (currentUser?.role === 'vendor') {
       alert('Vendor accounts are view-only for booking pages. Please use a customer account to book.');
       return;
@@ -301,10 +302,10 @@ export default function VenueDetail() {
 
             <button
               onClick={handleProceedToBooking}
-              disabled={!selectedDate || !isVenueAvailable}
+              disabled={!selectedDate || !isVenueAvailable || isBookingBlockedForRole}
               className="w-full lg:w-auto flex items-center justify-center gap-2 bg-purple-600 text-white px-6 sm:px-8 py-3 sm:py-4 rounded-lg font-semibold hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
             >
-              {t('venue.summary.proceed')}
+              {isBookingBlockedForRole ? (language === 'de' ? 'Nur fuer Kundenkonto' : 'Customers only') : t('venue.summary.proceed')}
               <ArrowRight className="size-5" />
             </button>
           </div>
@@ -324,9 +325,10 @@ export default function VenueDetail() {
               </div>
               <button
                 onClick={handleProceedToBooking}
+                disabled={isBookingBlockedForRole}
                 className="inline-flex items-center gap-2 rounded-lg bg-purple-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-purple-700 transition-colors"
               >
-                {t('venue.summary.proceed')}
+                {isBookingBlockedForRole ? (language === 'de' ? 'Nur Kunden' : 'Customers only') : t('venue.summary.proceed')}
                 <ArrowRight className="size-4" />
               </button>
             </div>
@@ -343,7 +345,7 @@ export default function VenueDetail() {
         </button>
 
         <div className="fixed z-30 right-4 sm:right-6 bottom-16 sm:bottom-20 rounded-full bg-white/95 border border-purple-200 px-3 py-1 text-[11px] text-purple-700 shadow-sm">
-          Go to checkout
+          {language === 'de' ? 'Zum Checkout' : 'Go to checkout'}
         </div>
       </div>
     </div>
