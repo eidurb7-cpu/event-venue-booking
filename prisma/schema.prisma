@@ -39,38 +39,100 @@ enum PaymentStatus {
   failed
 }
 
+enum VendorProfileStatus {
+  pending
+  approved
+  active
+  declined
+  suspended
+}
+
+enum MarketplacePriceType {
+  fixed
+  per_person
+}
+
+enum AvailabilityStatus {
+  available
+  reserved
+  booked
+  blocked
+}
+
+enum BookingStatus {
+  draft
+  pending
+  partially_accepted
+  accepted
+  declined
+  expired
+  cancelled
+  completed
+}
+
+enum BookingItemStatus {
+  pending
+  accepted
+  declined
+  counter_offered
+  cancelled
+}
+
+enum InvoiceStatus {
+  draft
+  issued
+  paid
+  failed
+  refunded
+  void
+}
+
+enum AnalyticsEventType {
+  profile_view
+  service_view
+  booking_request
+  booking_accepted
+  review_created
+}
+
 model User {
-  id        String   @id @default(cuid())
-  name      String
-  email     String   @unique
-  password  String
-  googleSub String?  @unique
-  role      UserRole @default(customer)
-  createdAt DateTime @default(now())
+  id               String            @id @default(cuid())
+  name             String
+  email            String            @unique
+  password         String
+  googleSub        String?           @unique
+  role             UserRole          @default(customer)
+  createdAt        DateTime          @default(now())
+  customerProfile  CustomerProfile?
+  vendorProfile    VendorProfile?
+  customerBookings Booking[]         @relation("BookingCustomer")
+  reviews          Review[]
+  analyticsEvents  AnalyticsEvent[]
 }
 
 model VendorApplication {
-  id             String                  @id @default(cuid())
-  status         VendorApplicationStatus @default(pending_review)
-  businessName   String
-  contactName    String
-  email          String                  @unique
-  password       String
-  googleSub      String?                 @unique
-  city           String?
-  websiteUrl     String?
-  portfolioUrl   String?
-  businessIntro  String?
-  categories     Json?
-  documentName   String?
-  documentKey    String?
-  documentUrl    String?
+  id              String                  @id @default(cuid())
+  status          VendorApplicationStatus @default(pending_review)
+  businessName    String
+  contactName     String
+  email           String                  @unique
+  password        String
+  googleSub       String?                 @unique
+  city            String?
+  websiteUrl      String?
+  portfolioUrl    String?
+  businessIntro   String?
+  categories      Json?
+  documentName    String?
+  documentKey     String?
+  documentUrl     String?
   stripeAccountId String?
   reviewNote      String?
   reviewedAt      DateTime?
-  createdAt      DateTime                @default(now())
-  posts          VendorPost[]
-  inquiries      VendorInquiry[]
+  createdAt       DateTime                @default(now())
+  posts           VendorPost[]
+  inquiries       VendorInquiry[]
+  vendorProfile   VendorProfile?
 }
 
 model ServiceRequest {
@@ -163,4 +225,186 @@ model VendorInquiry {
 
   @@index([vendorEmail])
   @@index([status])
+}
+
+model CustomerProfile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  address   String?
+  phone     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model VendorProfile {
+  id                  String               @id @default(cuid())
+  userId              String               @unique
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vendorApplicationId String?              @unique
+  vendorApplication   VendorApplication?   @relation(fields: [vendorApplicationId], references: [id], onDelete: SetNull)
+  status              VendorProfileStatus  @default(pending)
+  category            String
+  description         String?
+  totalReviews        Int                  @default(0)
+  ratingAverage       Decimal              @default(0)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  services            MarketplaceService[]
+  bookingItems        BookingItem[]
+  reviews             Review[]
+  analyticsEvents     AnalyticsEvent[]
+  dailyStats          VendorDailyStat[]
+}
+
+model MarketplaceService {
+  id            String               @id @default(cuid())
+  vendorId      String
+  vendor        VendorProfile        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  category      String
+  title         String
+  description   String?
+  basePrice     Int
+  priceType     MarketplacePriceType @default(fixed)
+  capacity      Int?
+  location      String?
+  isActive      Boolean              @default(true)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  availability  Availability[]
+  bookingItems  BookingItem[]
+  reviews       Review[]
+  analyticsEvents AnalyticsEvent[]
+
+  @@index([vendorId])
+  @@index([category])
+  @@index([isActive])
+}
+
+model Availability {
+  id                   String             @id @default(cuid())
+  serviceId            String
+  service              MarketplaceService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  date                 DateTime
+  status               AvailabilityStatus @default(available)
+  reservationExpiresAt DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  @@unique([serviceId, date])
+  @@index([date])
+  @@index([status])
+}
+
+model Booking {
+  id              String       @id @default(cuid())
+  customerId      String
+  customer        User         @relation("BookingCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+  status          BookingStatus @default(draft)
+  eventDate       DateTime
+  totalPrice      Int          @default(0)
+  finalPrice      Int?
+  expiresAt       DateTime?
+  isCompleted     Boolean      @default(false)
+  completedAt     DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  items           BookingItem[]
+  invoice         Invoice?
+  reviews         Review[]
+  analyticsEvents AnalyticsEvent[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([eventDate])
+}
+
+model BookingItem {
+  id              String            @id @default(cuid())
+  bookingId       String
+  booking         Booking           @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  vendorId        String
+  vendor          VendorProfile     @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  serviceId       String
+  service         MarketplaceService @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  priceOffered    Int
+  finalPrice      Int?
+  status          BookingItemStatus @default(pending)
+  vendorMessage   String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([bookingId])
+  @@index([vendorId])
+  @@index([serviceId])
+  @@index([status])
+}
+
+model Invoice {
+  id         String      @id @default(cuid())
+  bookingId  String      @unique
+  booking    Booking     @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  amount     Int
+  status     InvoiceStatus @default(draft)
+  issuedAt   DateTime?
+  paidAt     DateTime?
+  failedAt   DateTime?
+  stripeSessionId String?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@index([status])
+}
+
+model Review {
+  id          String            @id @default(cuid())
+  bookingId   String
+  booking     Booking           @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  serviceId   String
+  service     MarketplaceService @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  vendorId    String
+  vendor      VendorProfile     @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  customerId  String
+  customer    User              @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  rating      Int
+  comment     String?
+  createdAt   DateTime          @default(now())
+
+  @@unique([bookingId, serviceId, customerId])
+  @@index([vendorId])
+  @@index([serviceId])
+  @@index([customerId])
+}
+
+model AnalyticsEvent {
+  id         String             @id @default(cuid())
+  type       AnalyticsEventType
+  userId     String?
+  user       User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  vendorId   String?
+  vendor     VendorProfile?     @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  serviceId  String?
+  service    MarketplaceService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  bookingId  String?
+  booking    Booking?           @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  createdAt  DateTime           @default(now())
+
+  @@index([type, createdAt])
+  @@index([vendorId, type, createdAt])
+  @@index([serviceId, type, createdAt])
+}
+
+model VendorDailyStat {
+  id          String       @id @default(cuid())
+  vendorId    String
+  vendor      VendorProfile @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  date        DateTime
+  views       Int          @default(0)
+  bookings    Int          @default(0)
+  revenue     Int          @default(0)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@unique([vendorId, date])
+  @@index([date])
 }
