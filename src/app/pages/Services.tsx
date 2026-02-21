@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState, type ComponentType } from 'react';
+import { useNavigate } from 'react-router';
 import { Camera, Music, Palette, Search, SlidersHorizontal, Sparkles, Utensils } from 'lucide-react';
 import { services, type Service } from '../data/mockData';
 import { useLanguage } from '../context/LanguageContext';
+import { createRequest } from '../utils/api';
+import { getCurrentUser } from '../utils/auth';
 import {
   Dialog,
   DialogContent,
@@ -42,6 +45,7 @@ const categoryConfig: Array<{
 
 export default function Services() {
   const { t } = useLanguage();
+  const navigate = useNavigate();
   const [category, setCategory] = useState<CategoryFilter>('all');
   const [search, setSearch] = useState('');
   const [minRating, setMinRating] = useState(0);
@@ -57,6 +61,8 @@ export default function Services() {
   const [offerAmount, setOfferAmount] = useState('');
   const [offerMessage, setOfferMessage] = useState('');
   const [offerSubmitted, setOfferSubmitted] = useState(false);
+  const [offerError, setOfferError] = useState('');
+  const [offerSaving, setOfferSaving] = useState(false);
 
   const providers = useMemo<ProviderRow[]>(() => {
     return services.flatMap((service) =>
@@ -129,15 +135,18 @@ export default function Services() {
     setOfferAmount(String(row.providerPrice));
     setOfferMessage('');
     setOfferSubmitted(false);
+    setOfferError('');
   };
 
   const handleCloseProvider = () => {
     setActiveProvider(null);
     setDialogMode(null);
     setOfferSubmitted(false);
+    setOfferError('');
+    setOfferSaving(false);
   };
 
-  const handleSubmitOffer = (e: React.FormEvent) => {
+  const handleSubmitOffer = async (e: React.FormEvent) => {
     e.preventDefault();
     const needsGuestCount =
       activeProvider?.serviceCategory === 'catering' || activeProvider?.serviceCategory === 'decorations';
@@ -153,7 +162,35 @@ export default function Services() {
     ) {
       return;
     }
-    setOfferSubmitted(true);
+    const current = getCurrentUser();
+    if (!current || current.role !== 'customer' || !current.user.email) {
+      setOfferError('Bitte zuerst als Kunde einloggen.');
+      return;
+    }
+    if (!activeProvider) return;
+
+    setOfferSaving(true);
+    setOfferError('');
+    try {
+      const requestPayload = {
+        customerName: current.user.name || offerName.trim(),
+        customerEmail: current.user.email,
+        customerPhone: offerPhone.trim() || undefined,
+        selectedServices: [activeProvider.serviceCategory],
+        budget: Number(offerAmount),
+        eventDate: offerDate || undefined,
+        notes: `Provider: ${activeProvider.providerName} | Message: ${offerMessage || '-'} | Guests: ${offerGuests || '-'}`,
+      };
+      await createRequest(requestPayload);
+      setOfferSubmitted(true);
+      setTimeout(() => {
+        navigate('/customer-portfolio');
+      }, 900);
+    } catch (err) {
+      setOfferError(err instanceof Error ? err.message : 'Anfrage konnte nicht gesendet werden.');
+    } finally {
+      setOfferSaving(false);
+    }
   };
 
   return (
@@ -443,13 +480,19 @@ export default function Services() {
                         {t('services.dialog.offerSent')}
                       </div>
                     )}
+                    {offerError && (
+                      <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                        {offerError}
+                      </div>
+                    )}
 
                     <DialogFooter className="sticky bottom-0 bg-white pt-2">
                       <button
                         type="submit"
+                        disabled={offerSaving}
                         className="w-full sm:w-auto rounded-lg bg-purple-600 text-white px-4 py-2.5 text-sm font-medium hover:bg-purple-700 transition-colors"
                       >
-                        {t('services.dialog.submitOffer')}
+                        {offerSaving ? 'Wird gesendet...' : t('services.dialog.submitOffer')}
                       </button>
                     </DialogFooter>
                   </form>

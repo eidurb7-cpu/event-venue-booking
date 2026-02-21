@@ -1026,12 +1026,24 @@ createServer(async (req, res) => {
       const [, , , requestId, , offerId] = path.split('/');
       const body = await readBody(req);
       const status = body.status;
+      const isAdmin = isAdminAuthorized(req);
       if (!['accepted', 'declined', 'ignored', 'pending'].includes(status)) {
         return sendJson(res, 400, { error: 'Invalid status' });
       }
 
       const request = await prisma.serviceRequest.findUnique({ where: { id: requestId } });
       if (!request) return sendJson(res, 404, { error: 'Request not found' });
+
+      if (!isAdmin) {
+        const customerEmail = (body.customerEmail || '').trim().toLowerCase();
+        if (!customerEmail) {
+          return sendJson(res, 401, { error: 'customerEmail is required for customer offer updates' });
+        }
+        if (customerEmail !== request.customerEmail.toLowerCase()) {
+          return sendJson(res, 403, { error: 'You can only manage offers for your own requests' });
+        }
+      }
+
       if (request.status !== 'open') {
         return sendJson(res, 400, { error: 'Request is closed or expired' });
       }

@@ -9,6 +9,7 @@ export default function RequestPage() {
   const [categories, setCategories] = useState<string[]>(fallbackCategories);
   const [submittedId, setSubmittedId] = useState('');
   const [isCustomerSession, setIsCustomerSession] = useState(false);
+  const [isLoggedInCustomer, setIsLoggedInCustomer] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -37,7 +38,11 @@ export default function RequestPage() {
 
   useEffect(() => {
     const current = getCurrentUser();
-    if (!current || current.role !== 'customer') return;
+    if (!current || current.role !== 'customer') {
+      setIsLoggedInCustomer(false);
+      return;
+    }
+    setIsLoggedInCustomer(true);
     setIsCustomerSession(true);
     setForm((prev) => ({
       ...prev,
@@ -57,6 +62,10 @@ export default function RequestPage() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isLoggedInCustomer) {
+      setError('Bitte zuerst als Kunde mit Google einloggen, bevor du eine Anfrage sendest.');
+      return;
+    }
     if (!form.customerName || !form.customerEmail || !form.budget || form.selectedServices.length === 0) return;
     setIsSubmitting(true);
     setError('');
@@ -99,6 +108,14 @@ export default function RequestPage() {
           <p className="text-gray-600 mb-6">
             Waehle die gewuenschten Dienstleistungen und dein Budget. Vendor koennen sich danach auf deine Anfrage bewerben.
           </p>
+          {!isLoggedInCustomer && (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              Du musst eingeloggt sein, um eine Anfrage zu erstellen.{' '}
+              <Link to="/login" className="underline">
+                Zum Login
+              </Link>
+            </div>
+          )}
 
           <form onSubmit={onSubmit} className="space-y-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -222,7 +239,7 @@ export default function RequestPage() {
 
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || !isLoggedInCustomer}
               className="w-full rounded-lg bg-purple-600 text-white py-3 font-medium hover:bg-purple-700 transition-colors"
             >
               {isSubmitting ? 'Wird gesendet...' : 'Anfrage senden'}

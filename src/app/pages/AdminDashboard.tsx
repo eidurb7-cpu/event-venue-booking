@@ -167,7 +167,7 @@ export default function AdminDashboard() {
   const updateOffer = async (requestId: string, offerId: string, status: 'accepted' | 'declined' | 'ignored') => {
     setError('');
     try {
-      await setOfferStatus(requestId, offerId, status);
+      await setOfferStatus(requestId, offerId, status, { adminToken });
       await loadDashboard();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Fehler beim Aktualisieren des Angebots.');

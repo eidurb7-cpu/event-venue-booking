@@ -199,10 +199,12 @@ export function setOfferStatus(
   requestId: string,
   offerId: string,
   status: 'pending' | 'accepted' | 'declined' | 'ignored',
+  options?: { customerEmail?: string; adminToken?: string },
 ) {
   return request(`/api/requests/${requestId}/offers/${offerId}`, {
     method: 'PATCH',
-    body: JSON.stringify({ status }),
+    headers: options?.adminToken ? withAdminToken(options.adminToken) : undefined,
+    body: JSON.stringify({ status, customerEmail: options?.customerEmail }),
   });
 }
 
