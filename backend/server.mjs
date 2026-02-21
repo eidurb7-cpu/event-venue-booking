@@ -39,6 +39,9 @@ const ADMIN_NOTIFY_EMAIL = process.env.ADMIN_NOTIFY_EMAIL || '';
 const BOOKING_FLOW_MODE = String(process.env.BOOKING_FLOW_MODE || 'both').toLowerCase();
 const VENDOR_CONTRACT_VERSION = process.env.VENDOR_CONTRACT_VERSION || 'v1.0';
 const VENDOR_COMPLIANCE_FILE = process.env.VENDOR_COMPLIANCE_FILE || path.join(process.cwd(), 'backend', 'data', 'vendor-compliance.json');
+const SERVICE_AGREEMENT_VERSION = process.env.SERVICE_AGREEMENT_VERSION || 'v1.0';
+const SERVICE_AGREEMENT_FILE = process.env.SERVICE_AGREEMENT_FILE || path.join(process.cwd(), 'backend', 'data', 'service-agreements.json');
+const ENFORCE_VENDOR_PAYOUT_READINESS = String(process.env.ENFORCE_VENDOR_PAYOUT_READINESS || 'true').toLowerCase() !== 'false';
 const DEFAULT_RESPONSE_HOURS = 48;
 const MAX_RESPONSE_HOURS = 168;
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60_000);
@@ -425,7 +428,55 @@ async function assertVendorCanPublishOrRespond(vendor) {
   if (!activation.contractAccepted || !activation.trainingCompleted) {
     throw httpError(403, 'Vendor must accept contract and complete training before publishing or responding.');
   }
+  if (ENFORCE_VENDOR_PAYOUT_READINESS) {
+    const payout = await getVendorPayoutReadiness(vendor);
+    if (!payout.ready) {
+      throw httpError(403, `Vendor payout setup incomplete: ${payout.reason}`);
+    }
+  }
   return activation;
+}
+
+async function getVendorPayoutReadiness(vendor) {
+  if (!vendor?.stripeAccountId) {
+    return {
+      ready: false,
+      reason: 'Stripe Connect account not linked',
+      connectOnboardingStatus: 'NOT_STARTED',
+      payoutsEnabled: false,
+      chargesEnabled: false,
+    };
+  }
+  if (!stripe) {
+    return {
+      ready: true,
+      reason: null,
+      connectOnboardingStatus: 'COMPLETED',
+      payoutsEnabled: true,
+      chargesEnabled: true,
+    };
+  }
+  try {
+    const account = await stripe.accounts.retrieve(vendor.stripeAccountId);
+    const payoutsEnabled = Boolean(account.payouts_enabled);
+    const chargesEnabled = Boolean(account.charges_enabled);
+    const ready = payoutsEnabled && chargesEnabled;
+    return {
+      ready,
+      reason: ready ? null : 'Stripe onboarding not fully completed (charges/payouts disabled)',
+      connectOnboardingStatus: ready ? 'COMPLETED' : 'IN_PROGRESS',
+      payoutsEnabled,
+      chargesEnabled,
+    };
+  } catch {
+    return {
+      ready: false,
+      reason: 'Stripe account lookup failed',
+      connectOnboardingStatus: 'IN_PROGRESS',
+      payoutsEnabled: false,
+      chargesEnabled: false,
+    };
+  }
 }
 
 async function syncVendorProfileActivationStatus(tx, vendorApplication) {
@@ -443,6 +494,72 @@ async function syncVendorProfileActivationStatus(tx, vendorApplication) {
     });
   }
   return { ...identity, activation };
+}
+
+function defaultServiceAgreement() {
+  return {
+    agreementVersion: null,
+    agreementAcceptedByCustomerAt: null,
+    agreementAcceptedByCustomerIp: null,
+    agreementAcceptedByVendorAt: null,
+    updatedAt: null,
+  };
+}
+
+async function readServiceAgreementStore() {
+  try {
+    const raw = await fs.readFile(SERVICE_AGREEMENT_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return { bookings: {} };
+    return {
+      bookings: parsed.bookings && typeof parsed.bookings === 'object' ? parsed.bookings : {},
+    };
+  } catch {
+    return { bookings: {} };
+  }
+}
+
+async function writeServiceAgreementStore(store) {
+  await fs.mkdir(path.dirname(SERVICE_AGREEMENT_FILE), { recursive: true });
+  await fs.writeFile(SERVICE_AGREEMENT_FILE, JSON.stringify(store, null, 2), 'utf8');
+}
+
+async function getServiceAgreementRecord(bookingId) {
+  const store = await readServiceAgreementStore();
+  return {
+    ...defaultServiceAgreement(),
+    ...(store.bookings[String(bookingId)] || {}),
+  };
+}
+
+async function updateServiceAgreementRecord(bookingId, updater) {
+  const store = await readServiceAgreementStore();
+  const key = String(bookingId);
+  const current = {
+    ...defaultServiceAgreement(),
+    ...(store.bookings[key] || {}),
+  };
+  const next = {
+    ...current,
+    ...updater(current),
+    updatedAt: new Date().toISOString(),
+  };
+  store.bookings[key] = next;
+  await writeServiceAgreementStore(store);
+  return next;
+}
+
+async function getVendorApplicationFromBookingItem(tx, item) {
+  const vendorProfile = await tx.vendorProfile.findUnique({
+    where: { id: item.vendorId },
+    include: { vendorApplication: true, user: true },
+  });
+  if (!vendorProfile) return null;
+  if (vendorProfile.vendorApplication) return vendorProfile.vendorApplication;
+  if (!vendorProfile.user?.email) return null;
+  return tx.vendorApplication.findFirst({
+    where: { email: { equals: vendorProfile.user.email, mode: 'insensitive' } },
+  });
 }
 
 function canActorCounter(lastEventType, actorRole) {
@@ -883,6 +1000,19 @@ createServer(async (req, res) => {
         const vendor = await prisma.vendorApplication.findFirst({
           where: { email: { equals: offer.vendorEmail, mode: 'insensitive' } },
         });
+        if (!vendor?.stripeAccountId) {
+          return sendJson(res, 400, {
+            error: 'Vendor payout setup incomplete. Stripe Connect must be completed before customer payment.',
+          });
+        }
+        if (stripe) {
+          const account = await stripe.accounts.retrieve(vendor.stripeAccountId);
+          if (!account.charges_enabled || !account.payouts_enabled) {
+            return sendJson(res, 400, {
+              error: 'Vendor Stripe account is not payout-ready yet. Please try again after onboarding is completed.',
+            });
+          }
+        }
         if (vendor?.stripeAccountId) {
           const fee = Math.round(Number(offer.price) * 100 * (STRIPE_PLATFORM_COMMISSION_PERCENT / 100));
           paymentIntentData = {
@@ -1887,6 +2017,7 @@ createServer(async (req, res) => {
           };
         }).filter(Boolean);
 
+        const agreement = await getServiceAgreementRecord(booking.id);
         return {
           booking: {
             id: booking.id,
@@ -1895,12 +2026,69 @@ createServer(async (req, res) => {
             totalPrice: booking.totalPrice,
             finalPrice: booking.finalPrice,
             invoice: booking.invoice,
+            agreement: {
+              ...agreement,
+              required: booking.status === 'accepted',
+              customerAccepted: Boolean(agreement.agreementAcceptedByCustomerAt),
+            },
           },
           items,
         };
       });
 
       return sendJson(res, 200, payload);
+    }
+
+    if (req.method === 'POST' && path.match(/^\/api\/bookings\/[^/]+\/agreement\/accept$/)) {
+      ensureStructuredFlowEnabled();
+      const auth = requireJwt(req, 'customer');
+      const bookingId = path.split('/')[3];
+      const body = await readBody(req);
+      const customerEmail = normalizeOptionalString(body.customerEmail || auth.email, 320);
+      if (!customerEmail) return sendJson(res, 400, { error: 'customerEmail is required' });
+      if (String(auth.email || '').toLowerCase() !== customerEmail.toLowerCase()) {
+        return sendJson(res, 403, { error: 'customerEmail must match authenticated user' });
+      }
+
+      const booking = await prisma.booking.findUnique({
+        where: { id: bookingId },
+        include: {
+          customer: true,
+          items: true,
+        },
+      });
+      if (!booking) return sendJson(res, 404, { error: 'Booking not found' });
+      if (booking.customer.email.toLowerCase() !== customerEmail.toLowerCase()) {
+        return sendJson(res, 403, { error: 'Not allowed for this booking' });
+      }
+      if (booking.status !== 'accepted') {
+        return sendJson(res, 400, { error: 'Agreement can be accepted only when booking is ACCEPTED' });
+      }
+      if (!booking.items.every((item) => item.status === 'agreed')) {
+        return sendJson(res, 400, { error: 'All booking items must be AGREED before agreement acceptance' });
+      }
+
+      const lastVendorAcceptEvent = await prisma.offerEvent.findFirst({
+        where: { bookingId, type: 'vendor_accepted' },
+        orderBy: { createdAt: 'desc' },
+      });
+      const agreement = await updateServiceAgreementRecord(bookingId, (current) => ({
+        ...current,
+        agreementVersion: normalizeOptionalString(body.agreementVersion, 32) || SERVICE_AGREEMENT_VERSION,
+        agreementAcceptedByCustomerAt: new Date().toISOString(),
+        agreementAcceptedByCustomerIp: getClientIp(req),
+        agreementAcceptedByVendorAt:
+          current.agreementAcceptedByVendorAt
+          || (lastVendorAcceptEvent?.createdAt ? new Date(lastVendorAcceptEvent.createdAt).toISOString() : null),
+      }));
+
+      return sendJson(res, 200, {
+        agreement: {
+          ...agreement,
+          required: true,
+          customerAccepted: true,
+        },
+      });
     }
 
     if (req.method === 'POST' && path.match(/^\/api\/bookings\/[^/]+\/checkout$/)) {
@@ -1932,6 +2120,29 @@ createServer(async (req, res) => {
         if (booking.status !== 'accepted') throw httpError(400, 'Booking must be ACCEPTED before checkout');
         if (!booking.items.every((item) => item.status === 'agreed')) {
           throw httpError(400, 'All booking items must be AGREED before checkout');
+        }
+
+        const agreement = await getServiceAgreementRecord(booking.id);
+        if (!agreement.agreementAcceptedByCustomerAt) {
+          throw httpError(400, 'Customer must accept the service agreement before checkout');
+        }
+
+        const notReadyVendors = [];
+        for (const item of booking.items) {
+          const vendorApp = await getVendorApplicationFromBookingItem(tx, item);
+          if (!vendorApp) {
+            notReadyVendors.push({ itemId: item.id, reason: 'Vendor account not linked' });
+            continue;
+          }
+          if (!vendorApp.stripeAccountId) {
+            notReadyVendors.push({ itemId: item.id, reason: `${vendorApp.businessName} has no Stripe Connect account` });
+          }
+        }
+        if (notReadyVendors.length > 0) {
+          throw httpError(
+            400,
+            `Payout readiness failed for vendor items: ${notReadyVendors.map((v) => v.reason).join('; ')}`,
+          );
         }
 
         const finalTotalCents = booking.items.reduce(
@@ -1979,6 +2190,8 @@ createServer(async (req, res) => {
             bookingId: booking.id,
             invoiceId: invoice.id,
             customerEmail,
+            agreementVersion: String(agreement.agreementVersion || SERVICE_AGREEMENT_VERSION),
+            agreementAcceptedAt: String(agreement.agreementAcceptedByCustomerAt || ''),
           },
         });
 
@@ -2361,9 +2574,11 @@ createServer(async (req, res) => {
       const enriched = await Promise.all(
         applications.map(async (app) => {
           const compliance = await getVendorCompliance(app.email);
+          const payoutReadiness = await getVendorPayoutReadiness(app);
           return {
             ...app,
             compliance: buildVendorActivationState(app, compliance),
+            payoutReadiness,
           };
         }),
       );
@@ -2509,7 +2724,14 @@ createServer(async (req, res) => {
       });
       if (!vendor) return sendJson(res, 404, { error: 'Vendor profile not found' });
       const compliance = await getVendorCompliance(vendor.email);
-      return sendJson(res, 200, { vendor: { ...vendor, compliance: buildVendorActivationState(vendor, compliance) } });
+      const payoutReadiness = await getVendorPayoutReadiness(vendor);
+      return sendJson(res, 200, {
+        vendor: {
+          ...vendor,
+          compliance: buildVendorActivationState(vendor, compliance),
+          payoutReadiness,
+        },
+      });
     }
 
     if (req.method === 'GET' && path === '/api/vendor/posts') {

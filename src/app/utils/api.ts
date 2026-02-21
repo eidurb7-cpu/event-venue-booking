@@ -60,6 +60,13 @@ export interface VendorApplication {
   reviewedAt?: string | null;
   googleSub?: string | null;
   compliance?: VendorCompliance;
+  payoutReadiness?: {
+    ready: boolean;
+    reason?: string | null;
+    connectOnboardingStatus: 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED';
+    payoutsEnabled: boolean;
+    chargesEnabled: boolean;
+  };
   createdAt: string;
 }
 
@@ -194,6 +201,14 @@ export interface BookingThread {
       issuedAt?: string | null;
       paidAt?: string | null;
     } | null;
+    agreement?: {
+      agreementVersion?: string | null;
+      agreementAcceptedByCustomerAt?: string | null;
+      agreementAcceptedByCustomerIp?: string | null;
+      agreementAcceptedByVendorAt?: string | null;
+      required: boolean;
+      customerAccepted: boolean;
+    };
   };
   items: BookingThreadItem[];
 }
@@ -643,6 +658,25 @@ export function createBookingCheckout(
     method: 'POST',
     body: JSON.stringify(payload),
   }) as Promise<{ sessionId: string; url: string | null; invoiceId: string }>;
+}
+
+export function acceptBookingAgreement(
+  bookingId: string,
+  payload: { customerEmail: string; agreementVersion?: string },
+) {
+  return request(`/api/bookings/${bookingId}/agreement/accept`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }) as Promise<{
+    agreement: {
+      agreementVersion?: string | null;
+      agreementAcceptedByCustomerAt?: string | null;
+      agreementAcceptedByCustomerIp?: string | null;
+      agreementAcceptedByVendorAt?: string | null;
+      required: boolean;
+      customerAccepted: boolean;
+    };
+  }>;
 }
 
 export function vendorDecideMarketplaceBooking(

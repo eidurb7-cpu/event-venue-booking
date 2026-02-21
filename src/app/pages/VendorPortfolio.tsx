@@ -493,7 +493,7 @@ export default function VendorPortfolio() {
           </div>
           {!vendorCompliance?.canPublish && (
             <p className="mt-3 text-xs text-amber-700">
-              You cannot publish listings or respond to requests until all checklist items are complete.
+              You cannot publish listings or respond to requests until checklist items are complete and payout setup is ready.
             </p>
           )}
         </div>
@@ -510,6 +510,7 @@ export default function VendorPortfolio() {
               {vendorProfile.websiteUrl && <p><strong>Website:</strong> {vendorProfile.websiteUrl}</p>}
               {vendorProfile.portfolioUrl && <p><strong>Portfolio URL:</strong> {vendorProfile.portfolioUrl}</p>}
               <p><strong>Stripe Connect:</strong> {vendorProfile.stripeAccountId || 'Nicht verbunden'}</p>
+              <p><strong>Payout readiness:</strong> {vendorProfile.payoutReadiness?.ready ? 'Ready' : `Not ready${vendorProfile.payoutReadiness?.reason ? ` (${vendorProfile.payoutReadiness.reason})` : ''}`}</p>
               {stripeStatus && (
                 <>
                   <p><strong>Stripe charges_enabled:</strong> {stripeStatus.chargesEnabled ? 'Ja' : 'Nein'}</p>

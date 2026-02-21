@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router';
-import { createBookingCheckout, getBookingThread, BookingThread as BookingThreadType } from '../utils/api';
+import { acceptBookingAgreement, createBookingCheckout, getBookingThread, BookingThread as BookingThreadType } from '../utils/api';
 import { getCurrentUser } from '../utils/auth';
 import { OfferThread } from '../components/OfferThread';
 
@@ -15,13 +15,16 @@ export default function BookingThreadPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [agreementChecked, setAgreementChecked] = useState(false);
+  const [agreementSaving, setAgreementSaving] = useState(false);
 
   const current = getCurrentUser();
   const actorRole = current?.role === 'vendor' ? 'vendor' : 'customer';
   const actorEmail = current?.user?.email || '';
 
   const agreedTotalCents = useMemo(() => sumAgreedCents(thread), [thread]);
-  const canCheckout = thread?.booking.status === 'accepted' && actorRole === 'customer';
+  const agreementAccepted = Boolean(thread?.booking.agreement?.customerAccepted);
+  const canCheckout = thread?.booking.status === 'accepted' && actorRole === 'customer' && agreementAccepted;
 
   async function loadThread() {
     if (!bookingId) return;
@@ -67,6 +70,23 @@ export default function BookingThreadPage() {
     }
   }
 
+  async function acceptAgreement() {
+    if (!thread || actorRole !== 'customer' || !actorEmail || !agreementChecked) return;
+    setAgreementSaving(true);
+    setError('');
+    try {
+      await acceptBookingAgreement(thread.booking.id, {
+        customerEmail: actorEmail,
+        agreementVersion: 'v1.0',
+      });
+      await loadThread();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to accept agreement');
+    } finally {
+      setAgreementSaving(false);
+    }
+  }
+
   return (
     <section className="mx-auto w-full max-w-5xl px-4 py-8">
       <div className="rounded-xl border border-slate-200 bg-white p-4">
@@ -100,7 +120,38 @@ export default function BookingThreadPage() {
       </div>
 
       <div className="mt-5 rounded-xl border border-slate-200 bg-white p-4">
-        <p className="text-sm text-slate-600">Checkout is enabled only when booking status is ACCEPTED.</p>
+        <p className="text-sm text-slate-600">Checkout is enabled only when booking status is ACCEPTED and service agreement is accepted.</p>
+        {thread?.booking.status === 'accepted' && actorRole === 'customer' && (
+          <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            {!agreementAccepted ? (
+              <>
+                <label className="flex items-start gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={agreementChecked}
+                    onChange={(e) => setAgreementChecked(e.target.checked)}
+                    className="mt-1"
+                  />
+                  <span>
+                    I agree to the Service Agreement, including final price, scope, cancellation policy, and payment terms.
+                  </span>
+                </label>
+                <button
+                  type="button"
+                  onClick={acceptAgreement}
+                  disabled={!agreementChecked || agreementSaving}
+                  className="mt-3 rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                >
+                  {agreementSaving ? 'Saving agreement...' : 'Accept service agreement'}
+                </button>
+              </>
+            ) : (
+              <p className="text-sm text-emerald-700">
+                Service agreement accepted at {new Date(thread.booking.agreement?.agreementAcceptedByCustomerAt || '').toLocaleString()}.
+              </p>
+            )}
+          </div>
+        )}
         <button
           type="button"
           onClick={startCheckout}
