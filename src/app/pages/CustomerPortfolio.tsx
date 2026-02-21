@@ -151,6 +151,7 @@ export default function CustomerPortfolio() {
                 Services: {request.selectedServices.join(', ')} | Budget: EUR {request.budget.toLocaleString()}
               </p>
               <p className="text-sm text-gray-600 mt-1">Kontakt E-Mail: {request.customerEmail}</p>
+              {request.customerPhone && <p className="text-sm text-gray-600 mt-1">Kontakt Telefon: {request.customerPhone}</p>}
               {request.eventDate && (
                 <p className="text-sm text-gray-600 mt-1">Event-Datum: {new Date(request.eventDate).toLocaleDateString()}</p>
               )}

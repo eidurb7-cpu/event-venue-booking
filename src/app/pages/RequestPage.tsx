@@ -15,6 +15,7 @@ export default function RequestPage() {
   const [form, setForm] = useState({
     customerName: '',
     customerEmail: '',
+    customerPhone: '',
     selectedServices: [] as string[],
     budget: '',
     offerResponseHours: '48',
@@ -63,6 +64,7 @@ export default function RequestPage() {
       const data = await createRequest({
         customerName: form.customerName,
         customerEmail: form.customerEmail,
+        customerPhone: form.customerPhone || undefined,
         selectedServices: form.selectedServices,
         budget: Number(form.budget),
         offerResponseHours: Number(form.offerResponseHours),
@@ -74,6 +76,7 @@ export default function RequestPage() {
       setForm({
         customerName: '',
         customerEmail: '',
+        customerPhone: '',
         selectedServices: [],
         budget: '',
         offerResponseHours: '48',
@@ -119,6 +122,16 @@ export default function RequestPage() {
                   onChange={(e) => setForm((p) => ({ ...p, customerEmail: e.target.value }))}
                   disabled={isCustomerSession}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:ring-2 focus:ring-purple-600 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-700 mb-1">Telefon (optional)</label>
+                <input
+                  type="tel"
+                  value={form.customerPhone}
+                  onChange={(e) => setForm((p) => ({ ...p, customerPhone: e.target.value }))}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                  placeholder="+49 ..."
                 />
               </div>
             </div>

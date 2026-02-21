@@ -153,7 +153,11 @@ export default function AdminDashboard() {
   const updateApplication = async (applicationId: string, status: 'approved' | 'rejected' | 'pending_review') => {
     setError('');
     try {
-      await updateVendorApplicationStatus(adminToken, applicationId, status);
+      const reviewNote =
+        status === 'pending_review'
+          ? undefined
+          : window.prompt('Optional review note for vendor (shown in database):', '') || undefined;
+      await updateVendorApplicationStatus(adminToken, applicationId, status, reviewNote);
       await loadDashboard();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Fehler beim Aktualisieren der Vendor-Anfrage.');
@@ -435,6 +439,8 @@ export default function AdminDashboard() {
                     )}
                     {app.documentName && <p>Dateiname: {app.documentName}</p>}
                     {app.stripeAccountId && <p>Stripe Connect: {app.stripeAccountId}</p>}
+                    {app.reviewNote && <p>Review Note: {app.reviewNote}</p>}
+                    {app.reviewedAt && <p>Reviewed At: {new Date(app.reviewedAt).toLocaleString()}</p>}
                   </div>
                 )}
                 <div className="mt-3 flex items-center gap-2 flex-wrap">
@@ -498,6 +504,7 @@ export default function AdminDashboard() {
                 <p className="text-sm text-gray-700 mt-1">
                   Kunde: {request.customerName} ({request.customerEmail}) | Budget: EUR {request.budget.toLocaleString()}
                 </p>
+                {request.customerPhone && <p className="text-sm text-gray-600 mt-1">Telefon: {request.customerPhone}</p>}
                 <p className="text-sm text-gray-600 mt-1">Frist bis: {new Date(request.expiresAt).toLocaleString()}</p>
                 {openRequestIds[request.id] && (
                 <div className="mt-3 space-y-2">

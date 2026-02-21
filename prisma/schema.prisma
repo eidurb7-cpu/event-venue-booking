@@ -66,6 +66,8 @@ model VendorApplication {
   documentKey    String?
   documentUrl    String?
   stripeAccountId String?
+  reviewNote      String?
+  reviewedAt      DateTime?
   createdAt      DateTime                @default(now())
   posts          VendorPost[]
   inquiries      VendorInquiry[]
@@ -81,6 +83,7 @@ model ServiceRequest {
   closedReason     String?
   customerName     String
   customerEmail    String
+  customerPhone    String?
   selectedServices Json
   budget           Int
   eventDate        DateTime?

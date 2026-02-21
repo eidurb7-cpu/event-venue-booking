@@ -143,6 +143,7 @@ function signAdminToken(adminUser) {
 function serializeRequest(request) {
   return {
     ...request,
+    customerPhone: request.customerPhone || null,
     budget: Number(request.budget),
     offerResponseHours: Number(request.offerResponseHours || DEFAULT_RESPONSE_HOURS),
     selectedServices: Array.isArray(request.selectedServices) ? request.selectedServices : [],
@@ -644,6 +645,7 @@ createServer(async (req, res) => {
         data: {
           customerName,
           customerEmail,
+          customerPhone: body.customerPhone || null,
           selectedServices,
           budget: Number(budget),
           eventDate: body.eventDate ? new Date(body.eventDate) : null,
@@ -746,6 +748,7 @@ createServer(async (req, res) => {
       const applicationId = path.split('/')[4];
       const body = await readBody(req);
       const status = body.status;
+      const reviewNote = body.reviewNote ? String(body.reviewNote) : null;
       if (!['pending_review', 'approved', 'rejected'].includes(status)) {
         return sendJson(res, 400, { error: 'Invalid status' });
       }
@@ -754,7 +757,11 @@ createServer(async (req, res) => {
 
       const updated = await prisma.vendorApplication.update({
         where: { id: applicationId },
-        data: { status },
+        data: {
+          status,
+          reviewNote: status === 'pending_review' ? null : reviewNote,
+          reviewedAt: status === 'pending_review' ? null : new Date(),
+        },
       });
 
       if (status === 'approved') {

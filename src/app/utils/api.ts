@@ -28,6 +28,7 @@ export interface ServiceRequest {
   closedReason?: string | null;
   customerName: string;
   customerEmail: string;
+  customerPhone?: string | null;
   selectedServices: string[];
   budget: number;
   eventDate?: string | null;
@@ -54,6 +55,8 @@ export interface VendorApplication {
   documentKey?: string | null;
   documentUrl?: string | null;
   stripeAccountId?: string | null;
+  reviewNote?: string | null;
+  reviewedAt?: string | null;
   googleSub?: string | null;
   createdAt: string;
 }
@@ -159,6 +162,7 @@ export function login(payload: { email: string; password: string }) {
 export function createRequest(payload: {
   customerName: string;
   customerEmail: string;
+  customerPhone?: string;
   selectedServices: string[];
   budget: number;
   offerResponseHours?: number;
@@ -284,11 +288,12 @@ export function updateVendorApplicationStatus(
   adminKey: string,
   applicationId: string,
   status: 'pending_review' | 'approved' | 'rejected',
+  reviewNote?: string,
 ) {
   return request(`/api/admin/vendor-applications/${applicationId}`, {
     method: 'PATCH',
     headers: withAdminToken(adminKey),
-    body: JSON.stringify({ status }),
+    body: JSON.stringify({ status, reviewNote }),
   }) as Promise<{ application: VendorApplication }>;
 }
 

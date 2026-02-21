@@ -526,6 +526,7 @@ export default function VendorPortfolio() {
                 <span className="text-sm text-gray-600">Budget: EUR {request.budget.toLocaleString()}</span>
               </div>
               <p className="text-sm text-gray-600 mt-1">Kunde: {request.customerName} ({request.customerEmail})</p>
+              {request.customerPhone && <p className="text-sm text-gray-600 mt-1">Telefon: {request.customerPhone}</p>}
               <p className="text-sm text-orange-700 mt-1">Frist bis: {new Date(request.expiresAt).toLocaleString()}</p>
               <p className="text-sm text-gray-700 mt-2">Services: {request.selectedServices.join(', ')}</p>
               {request.notes && <p className="text-sm text-gray-600 mt-2">{request.notes}</p>}
