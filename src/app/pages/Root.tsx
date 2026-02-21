@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router';
 import { Header } from '../components/Header';
+import { Footer } from '../components/Footer';
 import { CookieBanner } from '../components/CookieBanner';
 import { ConsentScriptLoader } from '../components/ConsentScriptLoader';
 
@@ -11,6 +12,7 @@ export default function Root() {
       <main className="w-full">
         <Outlet />
       </main>
+      <Footer />
       <CookieBanner />
     </div>
   );

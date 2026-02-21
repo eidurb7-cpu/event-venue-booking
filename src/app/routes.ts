@@ -15,6 +15,12 @@ import Invoices from './pages/Invoices';
 import InvoiceDetail from './pages/InvoiceDetail';
 import CookieSettings from './pages/CookieSettings';
 import BookingThreadPage from './pages/BookingThread';
+import Impressum from './pages/Impressum';
+import PrivacyPolicy from './pages/PrivacyPolicy';
+import Terms from './pages/Terms';
+import VendorTerms from './pages/VendorTerms';
+import RefundPolicy from './pages/RefundPolicy';
+import Contact from './pages/Contact';
 import NotFound from './pages/NotFound';
 import RouteError from './pages/RouteError';
 
@@ -36,6 +42,12 @@ export const router = createBrowserRouter([
       { path: 'invoices', Component: Invoices },
       { path: 'invoice/:invoiceId', Component: InvoiceDetail },
       { path: 'cookies', Component: CookieSettings },
+      { path: 'impressum', Component: Impressum },
+      { path: 'privacy', Component: PrivacyPolicy },
+      { path: 'terms', Component: Terms },
+      { path: 'vendor-terms', Component: VendorTerms },
+      { path: 'refund-policy', Component: RefundPolicy },
+      { path: 'contact', Component: Contact },
       { path: 'booking-thread/:bookingId', Component: BookingThreadPage },
       { path: 'venue/:id', Component: VenueDetail },
       { path: 'booking', Component: Booking },

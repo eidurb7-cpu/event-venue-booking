@@ -136,14 +136,14 @@ export function Header() {
               <div className="relative group">
                 <button type="button" className="inline-flex items-center gap-2 bg-white text-gray-800 border border-gray-300 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors">
                   <User className="size-4" />
-                  <span className="max-w-[120px] truncate">{currentName || 'Konto'}</span>
+                  <span className="max-w-[120px] truncate">{currentName || t('nav.account')}</span>
                 </button>
                 <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
                   <Link to={accountHref} className="block px-4 py-3 text-sm text-gray-700 hover:bg-purple-50">
-                    Mein Konto
+                    {t('nav.account')}
                   </Link>
                   <Link to="/" className="block px-4 py-3 text-sm text-gray-700 hover:bg-purple-50">
-                    Zur Startseite
+                    {t('nav.backHome')}
                   </Link>
                   <button
                     type="button"
@@ -151,7 +151,7 @@ export function Header() {
                     className="w-full text-left px-4 py-3 text-sm text-red-600 hover:bg-red-50 inline-flex items-center gap-2"
                   >
                     <LogOut className="size-4" />
-                    Logout
+                    {t('nav.logout')}
                   </button>
                 </div>
               </div>
@@ -228,14 +228,14 @@ export function Header() {
                   onClick={() => setMobileOpen(false)}
                   className="block rounded-lg px-3 py-2 text-gray-700 hover:bg-gray-50"
                 >
-                  Mein Konto
+                  {t('nav.account')}
                 </Link>
                 <button
                   type="button"
                   onClick={logout}
                   className="w-full text-left rounded-lg px-3 py-2 text-red-600 hover:bg-red-50"
                 >
-                  Logout
+                  {t('nav.logout')}
                 </button>
               </>
             ) : (
