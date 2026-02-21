@@ -12,7 +12,7 @@ export default function Home() {
     <div className="min-h-screen bg-gray-50">
       {/* Hero Section */}
       <section className="bg-gradient-to-br from-purple-600 to-purple-900 text-white py-10 sm:py-20">
-        <div className="container mx-auto px-4">
+        <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="max-w-3xl">
             <h1 className="text-3xl sm:text-5xl font-bold mb-4 sm:mb-6">
               {t('home.hero.title')}
@@ -32,57 +32,59 @@ export default function Home() {
       </section>
 
       {/* Services Overview */}
-      <section className="py-10 sm:py-16 container mx-auto px-4">
-        <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-8 sm:mb-12 text-center">
-          {t('home.services.title')}
-        </h2>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8">
-          <div className="bg-white p-6 rounded-xl shadow-md text-center">
-            <div className="bg-purple-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-              <MapPin className="size-8 text-purple-600" />
+      <section className="py-10 sm:py-16">
+        <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-8 sm:mb-12 text-center">
+            {t('home.services.title')}
+          </h2>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8">
+            <div className="bg-white p-6 rounded-xl shadow-md text-center">
+              <div className="bg-purple-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                <MapPin className="size-8 text-purple-600" />
+              </div>
+              <h3 className="font-semibold text-gray-900 mb-2">{t('home.services.venues')}</h3>
+              <p className="text-gray-600 text-sm">{t('home.services.venues.desc')}</p>
             </div>
-            <h3 className="font-semibold text-gray-900 mb-2">{t('home.services.venues')}</h3>
-            <p className="text-gray-600 text-sm">{t('home.services.venues.desc')}</p>
-          </div>
 
-          <div className="bg-white p-6 rounded-xl shadow-md text-center">
-            <div className="bg-purple-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Music className="size-8 text-purple-600" />
+            <div className="bg-white p-6 rounded-xl shadow-md text-center">
+              <div className="bg-purple-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Music className="size-8 text-purple-600" />
+              </div>
+              <h3 className="font-semibold text-gray-900 mb-2">{t('home.services.djs')}</h3>
+              <p className="text-gray-600 text-sm">{t('home.services.djs.desc')}</p>
             </div>
-            <h3 className="font-semibold text-gray-900 mb-2">{t('home.services.djs')}</h3>
-            <p className="text-gray-600 text-sm">{t('home.services.djs.desc')}</p>
-          </div>
 
-          <div className="bg-white p-6 rounded-xl shadow-md text-center">
-            <div className="bg-purple-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Utensils className="size-8 text-purple-600" />
+            <div className="bg-white p-6 rounded-xl shadow-md text-center">
+              <div className="bg-purple-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Utensils className="size-8 text-purple-600" />
+              </div>
+              <h3 className="font-semibold text-gray-900 mb-2">{t('home.services.catering')}</h3>
+              <p className="text-gray-600 text-sm">{t('home.services.catering.desc')}</p>
             </div>
-            <h3 className="font-semibold text-gray-900 mb-2">{t('home.services.catering')}</h3>
-            <p className="text-gray-600 text-sm">{t('home.services.catering.desc')}</p>
-          </div>
 
-          <div className="bg-white p-6 rounded-xl shadow-md text-center">
-            <div className="bg-purple-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Sparkles className="size-8 text-purple-600" />
+            <div className="bg-white p-6 rounded-xl shadow-md text-center">
+              <div className="bg-purple-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Sparkles className="size-8 text-purple-600" />
+              </div>
+              <h3 className="font-semibold text-gray-900 mb-2">{t('home.services.makeup')}</h3>
+              <p className="text-gray-600 text-sm">{t('home.services.makeup.desc')}</p>
             </div>
-            <h3 className="font-semibold text-gray-900 mb-2">{t('home.services.makeup')}</h3>
-            <p className="text-gray-600 text-sm">{t('home.services.makeup.desc')}</p>
-          </div>
 
-          <div className="bg-white p-6 rounded-xl shadow-md text-center">
-            <div className="bg-purple-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Camera className="size-8 text-purple-600" />
+            <div className="bg-white p-6 rounded-xl shadow-md text-center">
+              <div className="bg-purple-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Camera className="size-8 text-purple-600" />
+              </div>
+              <h3 className="font-semibold text-gray-900 mb-2">{t('home.services.photography')}</h3>
+              <p className="text-gray-600 text-sm">{t('home.services.photography.desc')}</p>
             </div>
-            <h3 className="font-semibold text-gray-900 mb-2">{t('home.services.photography')}</h3>
-            <p className="text-gray-600 text-sm">{t('home.services.photography.desc')}</p>
           </div>
         </div>
       </section>
 
       {/* Featured Venues */}
       <section className="py-10 sm:py-16 bg-white">
-        <div className="container mx-auto px-4">
+        <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-8 sm:mb-12">
             <h2 className="text-2xl sm:text-3xl font-bold text-gray-900">
               {t('home.featured.title')}
@@ -106,7 +108,7 @@ export default function Home() {
 
       {/* CTA Section */}
       <section className="py-12 sm:py-20 bg-gradient-to-br from-purple-600 to-purple-900 text-white">
-        <div className="container mx-auto px-4 text-center">
+        <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-2xl sm:text-4xl font-bold mb-4 sm:mb-6">{t('home.cta.title')}</h2>
           <p className="text-base sm:text-xl text-purple-100 mb-6 sm:mb-8 max-w-2xl mx-auto">
             {t('home.cta.subtitle')}

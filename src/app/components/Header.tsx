@@ -38,11 +38,11 @@ export function Header() {
 
   return (
     <header className="bg-white border-b sticky top-0 z-50">
-      <div className="container mx-auto px-4 py-4">
+      <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         <div className="flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2">
+          <Link to="/" className="flex items-center gap-2 min-w-0">
             <Calendar className="size-8 text-purple-600" />
-            <span className="text-2xl font-semibold text-gray-900">EventVenue</span>
+            <span className="text-xl sm:text-2xl font-semibold text-gray-900 truncate">EventVenue</span>
           </Link>
 
           <nav className="hidden md:flex items-center gap-6">

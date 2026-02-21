@@ -55,14 +55,15 @@ export default function Booking() {
   };
 
   const calculateTotal = () => {
-    if (!bookingData || !formData.guests) return 0;
+    if (!bookingData) return 0;
 
     let total = bookingData.venue.price;
     const numGuests = parseInt(formData.guests, 10) || 0;
 
     bookingData.selectedProviders.forEach((item: any) => {
       if (item.service?.category === 'catering') {
-        total += item.provider.price * numGuests;
+        // Catering is per person and only scales once guest count is known.
+        total += numGuests > 0 ? item.provider.price * numGuests : 0;
       } else {
         total += item.provider.price;
       }
@@ -397,9 +398,21 @@ export default function Booking() {
                         <p className="text-xs text-gray-500 mt-2">{t('booking.summary.forGuests', { count: formData.guests })}</p>
                       </>
                     ) : (
-                      <div className="text-center py-4">
-                        <p className="text-sm text-gray-600">{t('booking.summary.enterGuests')}</p>
-                      </div>
+                      <>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-gray-600">{t('booking.summary.subtotal')}</span>
+                          <span className="font-semibold">${calculateTotal().toLocaleString()}</span>
+                        </div>
+                        <div className="flex items-center justify-between mb-4">
+                          <span className="text-gray-600">{t('booking.summary.fee')}</span>
+                          <span className="font-semibold">${(calculateTotal() * 0.1).toLocaleString()}</span>
+                        </div>
+                        <div className="flex items-center justify-between pt-4 border-t">
+                          <span className="text-lg font-bold text-gray-900">{t('booking.summary.total')}</span>
+                          <span className="text-2xl font-bold text-purple-600">${(calculateTotal() * 1.1).toLocaleString()}</span>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-2">{t('booking.summary.enterGuests')}</p>
+                      </>
                     )}
                   </div>
                 </div>

@@ -126,6 +126,12 @@
 
   body {
     @apply bg-background text-foreground;
+    overflow-x: hidden;
+  }
+
+  #root {
+    width: 100%;
+    overflow-x: hidden;
   }
 
   /**
@@ -177,5 +183,11 @@
     font-size: var(--text-base);
     font-weight: var(--font-weight-normal);
     line-height: 1.5;
+  }
+}
+
+@layer utilities {
+  .container {
+    @apply w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
   }
 }

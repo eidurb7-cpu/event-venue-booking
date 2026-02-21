@@ -3,9 +3,11 @@ import { Header } from '../components/Header';
 
 export default function Root() {
   return (
-    <div>
+    <div className="min-h-screen w-full overflow-x-hidden">
       <Header />
-      <Outlet />
+      <main className="w-full">
+        <Outlet />
+      </main>
     </div>
   );
 }

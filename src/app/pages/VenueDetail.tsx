@@ -37,7 +37,7 @@ export default function VenueDetail() {
     }));
   };
 
-  const calculateTotal = (numGuests: number = 50) => {
+  const calculateTotal = () => {
     let total = venue.price;
 
     Object.entries(selectedProviders).forEach(([serviceId, providerId]) => {
@@ -46,7 +46,8 @@ export default function VenueDetail() {
         const provider = service?.providers.find((p) => p.id === providerId);
         if (provider) {
           if (service?.category === 'catering') {
-            total += provider.price * numGuests;
+            // Catering is per person and finalized in checkout once guest count is entered.
+            total += 0;
           } else {
             total += provider.price;
           }
@@ -249,7 +250,7 @@ export default function VenueDetail() {
 
               <div>
                 <h3 className="font-semibold text-gray-900 mb-2">{t('venue.summary.title')}</h3>
-                <div className="text-2xl sm:text-3xl font-bold text-purple-600">${calculateTotal().toLocaleString()}+</div>
+                <div className="text-2xl sm:text-3xl font-bold text-purple-600">${calculateTotal().toLocaleString()}</div>
                 {hasSelectedProviders && (
                   <p className="text-sm text-gray-600 mt-1">
                     {t('venue.summary.services', {

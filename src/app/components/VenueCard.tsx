@@ -9,6 +9,7 @@ interface VenueCardProps {
 
 export function VenueCard({ venue }: VenueCardProps) {
   const { t } = useLanguage();
+  const formattedPrice = new Intl.NumberFormat('de-DE').format(venue.price);
   
   return (
     <Link to={`/venue/${venue.id}`} className="block group">
@@ -41,7 +42,7 @@ export function VenueCard({ venue }: VenueCardProps) {
           
           <div className="flex items-center justify-between pt-4 border-t">
             <span className="text-2xl font-semibold text-purple-600">
-              ${venue.price.toLocaleString()}
+              ab EUR {formattedPrice}
             </span>
             <span className="text-sm text-gray-500">{t('venue.perEvent')}</span>
           </div>
