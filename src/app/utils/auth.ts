@@ -54,10 +54,13 @@ export function setAdminSession(token: string, user: { id: string; name: string;
 }
 
 export function clearAdminSession() {
+  const hadAdminSession =
+    Boolean(sessionStorage.getItem(ADMIN_TOKEN_STORAGE))
+    || Boolean(sessionStorage.getItem(ADMIN_USER_STORAGE));
   sessionStorage.removeItem(ADMIN_TOKEN_STORAGE);
   sessionStorage.removeItem(ADMIN_USER_STORAGE);
   const current = getCurrentUser();
-  if (current?.role === 'admin') clearCurrentUser();
+  if (hadAdminSession || current?.role === 'admin') clearCurrentUser();
 }
 
 export function getAdminUser() {

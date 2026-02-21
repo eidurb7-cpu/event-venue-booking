@@ -89,7 +89,7 @@ export function Header() {
   const cartCount = (cart.venue ? 1 : 0) + cart.services.length;
 
   const logout = () => {
-    if (currentRole === 'admin') clearAdminSession();
+    if (getAdminToken()) clearAdminSession();
     clearCurrentUser();
     setMobileOpen(false);
     navigate('/');
