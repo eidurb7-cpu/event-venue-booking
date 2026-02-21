@@ -21,6 +21,7 @@ const USER_TOKEN_TTL = process.env.USER_TOKEN_TTL || '30d';
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
 const STRIPE_PLATFORM_COMMISSION_PERCENT = Number(process.env.STRIPE_PLATFORM_COMMISSION_PERCENT || 15);
+const DEFAULT_VAT_RATE = Number(process.env.DEFAULT_VAT_RATE || 0.19);
 const FRONTEND_BASE_URL = process.env.FRONTEND_BASE_URL || ALLOWED_ORIGIN;
 const STRIPE_CONNECT_REFRESH_URL = process.env.STRIPE_CONNECT_REFRESH_URL || `${FRONTEND_BASE_URL}/vendor-portfolio`;
 const STRIPE_CONNECT_RETURN_URL = process.env.STRIPE_CONNECT_RETURN_URL || `${FRONTEND_BASE_URL}/vendor-portfolio`;
@@ -340,6 +341,24 @@ function centsToLegacyPrice(cents) {
   return Math.max(1, Math.round(Number(cents || 0) / 100));
 }
 
+function computeTotalsFromGross(grossAmountCents, vatRate = DEFAULT_VAT_RATE, commissionRate = STRIPE_PLATFORM_COMMISSION_PERCENT / 100) {
+  const grossAmount = Math.max(0, Math.round(Number(grossAmountCents || 0)));
+  const safeVatRate = Number.isFinite(vatRate) && vatRate >= 0 ? vatRate : 0;
+  const safeCommissionRate = Number.isFinite(commissionRate) && commissionRate >= 0 ? commissionRate : 0;
+  const netAmount = safeVatRate > 0 ? Math.round(grossAmount / (1 + safeVatRate)) : grossAmount;
+  const vatAmount = Math.max(0, grossAmount - netAmount);
+  const platformFee = Math.max(0, Math.round(grossAmount * safeCommissionRate));
+  const vendorNetAmount = Math.max(0, grossAmount - platformFee);
+  return {
+    netAmount,
+    vatRate: safeVatRate,
+    vatAmount,
+    grossAmount,
+    platformFee,
+    vendorNetAmount,
+  };
+}
+
 async function getVendorApplicationByEmail(email) {
   return prisma.vendorApplication.findFirst({
     where: { email: { equals: String(email || '').trim(), mode: 'insensitive' } },
@@ -357,6 +376,88 @@ function supportsPrismaModel(modelName) {
 function isPrismaTableMissingError(error) {
   const code = String(error?.code || '');
   return code === 'P2021' || code === 'P2022';
+}
+
+function getAdminActorId(req) {
+  const payload = getJwtPayload(req);
+  if (payload?.role === 'admin' && payload?.sub) return String(payload.sub);
+  return 'legacy_admin';
+}
+
+async function writeAdminAuditLog(req, action, targetId = null, meta = null) {
+  if (!supportsPrismaModel('adminAuditLog')) return;
+  try {
+    await prisma.adminAuditLog.create({
+      data: {
+        adminId: getAdminActorId(req),
+        action: String(action || 'unknown'),
+        targetId: targetId ? String(targetId) : null,
+        metaJson: meta ? JSON.stringify(meta) : null,
+      },
+    });
+  } catch (error) {
+    if (!isPrismaTableMissingError(error)) throw error;
+  }
+}
+
+async function appendNegotiationMessage(tx, { bookingId, senderRole, proposedCents = null, reason = null }) {
+  if (!supportsPrismaModel('negotiationMessage')) return;
+  try {
+    const proposedNet = Number.isFinite(Number(proposedCents))
+      ? Number((Number(proposedCents) / 100).toFixed(2))
+      : null;
+    await tx.negotiationMessage.create({
+      data: {
+        bookingId: String(bookingId),
+        senderRole: String(senderRole || 'SYSTEM').toUpperCase(),
+        proposedNet,
+        reason: reason ? String(reason).slice(0, 4000) : null,
+      },
+    });
+  } catch (error) {
+    if (!isPrismaTableMissingError(error)) throw error;
+  }
+}
+
+async function reserveWebhookEvent(event) {
+  if (!supportsPrismaModel('stripeWebhookEvent')) return { duplicate: false };
+  try {
+    await prisma.stripeWebhookEvent.create({
+      data: {
+        stripeEventId: String(event.id),
+        eventType: String(event.type),
+        payload: event?.data?.object || null,
+      },
+    });
+    return { duplicate: false };
+  } catch (error) {
+    if (String(error?.code || '') === 'P2002') return { duplicate: true };
+    if (isPrismaTableMissingError(error)) return { duplicate: false };
+    throw error;
+  }
+}
+
+async function markWebhookEventProcessed(stripeEventId) {
+  if (!supportsPrismaModel('stripeWebhookEvent')) return;
+  try {
+    await prisma.stripeWebhookEvent.updateMany({
+      where: { stripeEventId: String(stripeEventId) },
+      data: { processedAt: new Date() },
+    });
+  } catch (error) {
+    if (!isPrismaTableMissingError(error)) throw error;
+  }
+}
+
+async function releaseWebhookEventReservation(stripeEventId) {
+  if (!supportsPrismaModel('stripeWebhookEvent')) return;
+  try {
+    await prisma.stripeWebhookEvent.deleteMany({
+      where: { stripeEventId: String(stripeEventId), processedAt: null },
+    });
+  } catch (error) {
+    if (!isPrismaTableMissingError(error)) throw error;
+  }
 }
 
 function defaultVendorCompliance() {
@@ -566,6 +667,20 @@ async function getVendorPayoutReadiness(vendor) {
         payoutsEnabled: Boolean(payload.payoutsEnabled),
         chargesEnabled: Boolean(payload.chargesEnabled),
       }));
+      if (supportsPrismaModel('vendorProfile')) {
+        await prisma.vendorProfile.updateMany({
+          where: {
+            user: {
+              email: { equals: vendor.email, mode: 'insensitive' },
+            },
+          },
+          data: {
+            stripePayoutsEnabled: Boolean(payload.payoutsEnabled),
+            stripeChargesEnabled: Boolean(payload.chargesEnabled),
+            stripeAccountId: vendor.stripeAccountId || null,
+          },
+        });
+      }
     } catch {
       // Ignore persistence errors to keep request flow resilient.
     }
@@ -623,7 +738,31 @@ async function syncVendorProfileActivationStatus(tx, vendorApplication) {
   if (vendorProfile.status !== nextStatus) {
     await tx.vendorProfile.update({
       where: { id: vendorProfile.id },
-      data: { status: nextStatus },
+      data: {
+        status: nextStatus,
+        vendorStatus: nextStatus,
+        contractAccepted: Boolean(compliance.contractAccepted),
+        contractAcceptedAt: compliance.contractAcceptedAt ? new Date(compliance.contractAcceptedAt) : null,
+        trainingCompleted: Boolean(compliance.trainingCompleted),
+        trainingCompletedAt: compliance.trainingCompletedAt ? new Date(compliance.trainingCompletedAt) : null,
+        stripePayoutsEnabled: Boolean(compliance.payoutsEnabled),
+        stripeChargesEnabled: Boolean(compliance.chargesEnabled),
+        stripeAccountId: vendorApplication.stripeAccountId || vendorProfile.stripeAccountId || null,
+      },
+    });
+  } else {
+    await tx.vendorProfile.update({
+      where: { id: vendorProfile.id },
+      data: {
+        vendorStatus: nextStatus,
+        contractAccepted: Boolean(compliance.contractAccepted),
+        contractAcceptedAt: compliance.contractAcceptedAt ? new Date(compliance.contractAcceptedAt) : null,
+        trainingCompleted: Boolean(compliance.trainingCompleted),
+        trainingCompletedAt: compliance.trainingCompletedAt ? new Date(compliance.trainingCompletedAt) : null,
+        stripePayoutsEnabled: Boolean(compliance.payoutsEnabled),
+        stripeChargesEnabled: Boolean(compliance.chargesEnabled),
+        stripeAccountId: vendorApplication.stripeAccountId || vendorProfile.stripeAccountId || null,
+      },
     });
   }
   return { ...identity, activation };
@@ -764,7 +903,23 @@ async function getVendorApplicationFromBookingItem(tx, item) {
   });
 }
 
-async function createOrUpdatePayoutRecordsForBooking(bookingId) {
+async function getStripeDestinationForVendorProfile(vendorId) {
+  const vendorProfile = await prisma.vendorProfile.findUnique({
+    where: { id: String(vendorId) },
+    include: { vendorApplication: true, user: true },
+  });
+  if (!vendorProfile) return null;
+  if (vendorProfile.vendorApplication?.stripeAccountId) return vendorProfile.vendorApplication.stripeAccountId;
+  if (!vendorProfile.user?.email) return null;
+  const app = await prisma.vendorApplication.findFirst({
+    where: { email: { equals: vendorProfile.user.email, mode: 'insensitive' } },
+    select: { stripeAccountId: true },
+  });
+  return app?.stripeAccountId || null;
+}
+
+async function createOrUpdatePayoutRecordsForBooking(bookingId, options = {}) {
+  const targetStatus = String(options.status || 'pending');
   if (!supportsPrismaModel('payout')) return;
   try {
     const booking = await prisma.booking.findUnique({
@@ -773,37 +928,149 @@ async function createOrUpdatePayoutRecordsForBooking(bookingId) {
     });
     if (!booking || booking.items.length === 0) return;
 
+    const perVendor = new Map();
     for (const item of booking.items) {
-      const grossAmount = Math.max(0, Number(item.finalPriceCents || item.latestPriceCents || 0));
+      const itemGrossAmount = Math.max(0, Number(item.finalPriceCents || item.latestPriceCents || 0));
+      if (itemGrossAmount <= 0) continue;
+      const existing = perVendor.get(item.vendorId) || { grossAmount: 0 };
+      existing.grossAmount += itemGrossAmount;
+      perVendor.set(item.vendorId, existing);
+    }
+
+    for (const [vendorId, totals] of perVendor.entries()) {
+      const grossAmount = Math.max(0, Number(totals.grossAmount || 0));
       if (grossAmount <= 0) continue;
-      const platformFee = Math.max(0, Math.round(grossAmount * (STRIPE_PLATFORM_COMMISSION_PERCENT / 100)));
-      const vendorNetAmount = Math.max(0, grossAmount - platformFee);
+      const computed = computeTotalsFromGross(grossAmount);
+      const platformFee = computed.platformFee;
+      const vendorNetAmount = computed.vendorNetAmount;
+      const existing = await prisma.payout.findUnique({
+        where: {
+          bookingId_vendorId: {
+            bookingId: booking.id,
+            vendorId,
+          },
+        },
+      });
+
       await prisma.payout.upsert({
         where: {
           bookingId_vendorId: {
             bookingId: booking.id,
-            vendorId: item.vendorId,
+            vendorId,
           },
         },
         update: {
           grossAmount,
           platformFee,
           vendorNetAmount,
-          status: 'paid',
+          status: existing?.stripeTransferId ? 'paid' : targetStatus,
         },
         create: {
           bookingId: booking.id,
-          vendorId: item.vendorId,
+          vendorId,
           grossAmount,
           platformFee,
           vendorNetAmount,
-          status: 'paid',
+          status: targetStatus,
         },
       });
     }
   } catch (error) {
     if (!isPrismaTableMissingError(error)) throw error;
   }
+}
+
+async function createStripeTransfersForBookingPayouts(bookingId, paymentIntentId) {
+  if (!stripe || !supportsPrismaModel('payout')) return;
+  if (!bookingId || !paymentIntentId) return;
+
+  const paymentIntent = await stripe.paymentIntents.retrieve(String(paymentIntentId), {
+    expand: ['latest_charge'],
+  });
+  const transferGroup = paymentIntent.transfer_group || `booking_${bookingId}`;
+  const latestChargeId = typeof paymentIntent.latest_charge === 'string'
+    ? paymentIntent.latest_charge
+    : paymentIntent.latest_charge?.id;
+
+  const payouts = await prisma.payout.findMany({
+    where: { bookingId: String(bookingId) },
+  });
+  for (const payout of payouts) {
+    if (payout.stripeTransferId) continue;
+    if (payout.vendorNetAmount <= 0) {
+      await prisma.payout.update({
+        where: { id: payout.id },
+        data: { status: 'failed' },
+      });
+      continue;
+    }
+
+    const destination = await getStripeDestinationForVendorProfile(payout.vendorId);
+    if (!destination) {
+      await prisma.payout.update({
+        where: { id: payout.id },
+        data: { status: 'failed' },
+      });
+      continue;
+    }
+
+    try {
+      const transfer = await stripe.transfers.create(
+        {
+          amount: payout.vendorNetAmount,
+          currency: 'eur',
+          destination,
+          transfer_group: transferGroup,
+          source_transaction: latestChargeId || undefined,
+          metadata: {
+            bookingId: String(bookingId),
+            vendorId: String(payout.vendorId),
+            payoutId: String(payout.id),
+            paymentIntentId: String(paymentIntentId),
+          },
+        },
+        {
+          idempotencyKey: `booking:${bookingId}:vendor:${payout.vendorId}:pi:${paymentIntentId}`,
+        },
+      );
+
+      await prisma.payout.update({
+        where: { id: payout.id },
+        data: {
+          stripeTransferId: transfer.id,
+          status: 'paid',
+        },
+      });
+    } catch {
+      await prisma.payout.update({
+        where: { id: payout.id },
+        data: { status: 'failed' },
+      });
+    }
+  }
+}
+
+async function retryPayoutTransfersForBooking(bookingId) {
+  if (!stripe) throw httpError(400, 'Stripe is not configured');
+  const booking = await prisma.booking.findUnique({
+    where: { id: String(bookingId) },
+    include: { invoice: true },
+  });
+  if (!booking) throw httpError(404, 'Booking not found');
+  if (!booking.invoice?.stripeSessionId) {
+    throw httpError(400, 'No checkout session linked to booking invoice');
+  }
+
+  const session = await stripe.checkout.sessions.retrieve(String(booking.invoice.stripeSessionId), {
+    expand: ['payment_intent'],
+  });
+  const paymentIntentId = typeof session.payment_intent === 'string'
+    ? session.payment_intent
+    : session.payment_intent?.id;
+  if (!paymentIntentId) throw httpError(400, 'No payment intent linked to checkout session');
+
+  await createOrUpdatePayoutRecordsForBooking(booking.id, { status: 'pending' });
+  await createStripeTransfersForBookingPayouts(booking.id, paymentIntentId);
 }
 
 function canActorCounter(lastEventType, actorRole) {
@@ -922,6 +1189,12 @@ async function expireNegotiationsIfInactive(tx, bookingId) {
         reason: 'Negotiation expired due to inactivity.',
       },
     });
+    await appendNegotiationMessage(tx, {
+      bookingId: booking.id,
+      senderRole: 'SYSTEM',
+      proposedCents: item.latestPriceCents || null,
+      reason: 'Negotiation expired due to inactivity.',
+    });
   }
 
   const updated = await tx.booking.update({
@@ -963,11 +1236,14 @@ async function ensureVendorIdentityFromApplication(tx, application) {
   });
 
   if (!user) {
+    const generatedPassword = application.password || `vendor_${randomUUID()}`;
     user = await tx.user.create({
       data: {
         name: application.businessName,
+        fullName: application.businessName,
         email: application.email,
-        password: application.password || `vendor_${randomUUID()}`,
+        password: generatedPassword,
+        passwordHash: generatedPassword,
         googleSub: application.googleSub || null,
         role: 'vendor',
       },
@@ -975,7 +1251,19 @@ async function ensureVendorIdentityFromApplication(tx, application) {
   } else if (!user.googleSub && application.googleSub) {
     user = await tx.user.update({
       where: { id: user.id },
-      data: { googleSub: application.googleSub },
+      data: {
+        googleSub: application.googleSub,
+        fullName: user.fullName || user.name,
+        passwordHash: user.passwordHash || user.password,
+      },
+    });
+  } else if (!user.fullName || !user.passwordHash) {
+    user = await tx.user.update({
+      where: { id: user.id },
+      data: {
+        fullName: user.fullName || user.name,
+        passwordHash: user.passwordHash || user.password,
+      },
     });
   }
 
@@ -984,15 +1272,21 @@ async function ensureVendorIdentityFromApplication(tx, application) {
     update: {
       userId: user.id,
       status: mapVendorApplicationStatusToProfileStatus(application.status),
+      vendorStatus: mapVendorApplicationStatusToProfileStatus(application.status),
+      businessName: application.businessName || undefined,
       category: pickPrimaryCategory(application.categories),
       description: application.businessIntro || undefined,
+      stripeAccountId: application.stripeAccountId || undefined,
     },
     create: {
       userId: user.id,
       vendorApplicationId: application.id,
       status: mapVendorApplicationStatusToProfileStatus(application.status),
+      vendorStatus: mapVendorApplicationStatusToProfileStatus(application.status),
+      businessName: application.businessName || undefined,
       category: pickPrimaryCategory(application.categories),
       description: application.businessIntro || undefined,
+      stripeAccountId: application.stripeAccountId || undefined,
     },
   });
 
@@ -1119,7 +1413,7 @@ createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, service: 'eventvenue-api', status: 'running' });
     }
 
-    if (req.method === 'POST' && path === '/api/payments/webhook') {
+    if (req.method === 'POST' && (path === '/api/payments/webhook' || path === '/api/stripe/webhook')) {
       if (enforceRateLimit(req, res, 'webhook')) return;
       if (!stripe || !STRIPE_WEBHOOK_SECRET) {
         return sendJson(res, 400, { error: 'Stripe webhook is not configured' });
@@ -1137,71 +1431,109 @@ createServer(async (req, res) => {
         return sendJson(res, 400, { error: `Webhook signature verification failed: ${err.message}` });
       }
 
-      // Placeholder for future payment status persistence.
-      if (event.type === 'checkout.session.completed') {
-        const session = event.data.object;
-        const requestId = session.metadata?.requestId;
-        const offerId = session.metadata?.offerId;
-        const bookingId = session.metadata?.bookingId;
-        const invoiceId = session.metadata?.invoiceId;
-        if (requestId && offerId) {
-          await prisma.vendorOffer.updateMany({
-            where: { id: offerId, requestId },
-            data: {
-              paymentStatus: 'paid',
-              stripeSessionId: session.id || null,
-              stripePaymentIntent: typeof session.payment_intent === 'string' ? session.payment_intent : null,
-              paidAt: new Date(),
-            },
-          });
-        }
-        if (bookingId) {
-          await prisma.$transaction(async (tx) => {
-            if (invoiceId) {
-              await tx.invoice.updateMany({
-                where: { id: invoiceId, bookingId },
-                data: {
-                  status: 'paid',
-                  paidAt: new Date(),
-                  stripeSessionId: session.id || null,
-                },
-              });
-            } else {
-              await tx.invoice.updateMany({
-                where: { bookingId },
-                data: {
-                  status: 'paid',
-                  paidAt: new Date(),
-                  stripeSessionId: session.id || null,
-                },
-              });
-            }
-            const booking = await tx.booking.update({
-              where: { id: bookingId },
+      const reservation = await reserveWebhookEvent(event);
+      if (reservation.duplicate) {
+        return sendJson(res, 200, { received: true, event: event.type, duplicate: true });
+      }
+
+      try {
+        if (event.type === 'checkout.session.completed') {
+          const session = event.data.object;
+          const requestId = session.metadata?.requestId;
+          const offerId = session.metadata?.offerId;
+          const bookingId = session.metadata?.bookingId;
+          const invoiceId = session.metadata?.invoiceId;
+          const paymentIntentId = typeof session.payment_intent === 'string' ? session.payment_intent : null;
+          if (requestId && offerId) {
+            await prisma.vendorOffer.updateMany({
+              where: { id: offerId, requestId },
               data: {
-                status: 'paid',
-                isCompleted: false,
+                paymentStatus: 'paid',
+                stripeSessionId: session.id || null,
+                stripePaymentIntent: typeof session.payment_intent === 'string' ? session.payment_intent : null,
+                paidAt: new Date(),
               },
             });
-            await bookBookingAvailability(tx, booking);
-          });
-          await createOrUpdatePayoutRecordsForBooking(bookingId);
+          }
+          if (bookingId) {
+            await prisma.$transaction(async (tx) => {
+              if (invoiceId) {
+                await tx.invoice.updateMany({
+                  where: { id: invoiceId, bookingId },
+                  data: {
+                    status: 'paid',
+                    paidAt: new Date(),
+                    stripeSessionId: session.id || null,
+                  },
+                });
+              } else {
+                await tx.invoice.updateMany({
+                  where: { bookingId },
+                  data: {
+                    status: 'paid',
+                    paidAt: new Date(),
+                    stripeSessionId: session.id || null,
+                  },
+                });
+              }
+              const booking = await tx.booking.update({
+                where: { id: bookingId },
+                data: {
+                  status: 'paid',
+                  isCompleted: false,
+                  stripeSessionId: session.id || null,
+                  stripePaymentIntentId: paymentIntentId || null,
+                },
+              });
+              await bookBookingAvailability(tx, booking);
+            });
+            await createOrUpdatePayoutRecordsForBooking(bookingId, { status: 'pending' });
+            if (paymentIntentId) {
+              await createStripeTransfersForBookingPayouts(bookingId, paymentIntentId);
+            }
+          }
+        } else if (event.type === 'payment_intent.succeeded') {
+          const paymentIntent = event.data.object;
+          const bookingId = paymentIntent.metadata?.bookingId;
+          if (bookingId) {
+            await createOrUpdatePayoutRecordsForBooking(bookingId, { status: 'pending' });
+            await createStripeTransfersForBookingPayouts(bookingId, paymentIntent.id);
+          }
+        } else if (event.type === 'checkout.session.expired') {
+          const session = event.data.object;
+          const requestId = session.metadata?.requestId;
+          const offerId = session.metadata?.offerId;
+          if (requestId && offerId) {
+            await prisma.vendorOffer.updateMany({
+              where: { id: offerId, requestId, paymentStatus: { not: 'paid' } },
+              data: {
+                paymentStatus: 'failed',
+                stripeSessionId: session.id || null,
+              },
+            });
+          }
+        } else if (event.type === 'payment_intent.payment_failed') {
+          const paymentIntent = event.data.object;
+          const bookingId = paymentIntent.metadata?.bookingId;
+          if (bookingId) {
+            await prisma.$transaction(async (tx) => {
+              await tx.invoice.updateMany({
+                where: { bookingId, status: { in: ['draft', 'issued'] } },
+                data: { status: 'failed', failedAt: new Date() },
+              });
+              if (supportsPrismaModel('payout')) {
+                await tx.payout.updateMany({
+                  where: { bookingId, status: 'pending' },
+                  data: { status: 'failed' },
+                });
+              }
+            });
+          }
         }
-        return sendJson(res, 200, { received: true, event: event.type });
-      }
-      if (event.type === 'checkout.session.expired') {
-        const session = event.data.object;
-        const requestId = session.metadata?.requestId;
-        const offerId = session.metadata?.offerId;
-        if (requestId && offerId) {
-          await prisma.vendorOffer.updateMany({
-            where: { id: offerId, requestId, paymentStatus: { not: 'paid' } },
-            data: {
-              paymentStatus: 'failed',
-              stripeSessionId: session.id || null,
-            },
-          });
-        }
+        await markWebhookEventProcessed(event.id);
+      } catch (error) {
+        await releaseWebhookEventReservation(event.id);
+        throw error;
       }
       return sendJson(res, 200, { received: true, event: event.type });
     }
@@ -1310,7 +1642,10 @@ createServer(async (req, res) => {
       });
     }
 
-    if (req.method === 'POST' && (path === '/api/stripe/checkout' || path === '/api/cart/checkout-session')) {
+    if (
+      req.method === 'POST'
+      && (path === '/api/stripe/checkout' || path === '/api/cart/checkout-session' || path === '/api/bookings/venue/create')
+    ) {
       if (enforceRateLimit(req, res, 'payment')) return;
       if (!stripe) {
         return sendJson(res, 400, { error: 'Stripe is not configured' });
@@ -1508,11 +1843,14 @@ createServer(async (req, res) => {
       });
 
       if (!customer) {
+        const generatedPassword = `google_${randomUUID()}`;
         customer = await prisma.user.create({
           data: {
             name: profile.name || profile.email.split('@')[0],
+            fullName: profile.name || profile.email.split('@')[0],
             email: profile.email,
-            password: `google_${randomUUID()}`,
+            password: generatedPassword,
+            passwordHash: generatedPassword,
             googleSub: profile.sub,
             role: 'customer',
           },
@@ -1602,7 +1940,14 @@ createServer(async (req, res) => {
       }
 
       const adminUser = await prisma.user.create({
-        data: { name, email, password, role: 'admin' },
+        data: {
+          name,
+          fullName: name,
+          email,
+          password,
+          passwordHash: password,
+          role: 'admin',
+        },
       });
       return sendJson(res, 201, {
         admin: {
@@ -1699,7 +2044,31 @@ createServer(async (req, res) => {
       return sendJson(res, 400, { error: 'Customer signup is Google-only. Please use Google sign-in.' });
     }
 
-    if (req.method === 'POST' && path === '/api/auth/signup/vendor') {
+    if (req.method === 'GET' && path === '/api/me') {
+      const auth = requireJwt(req, 'customer', 'vendor', 'admin');
+      const base = {
+        id: String(auth.sub || ''),
+        email: String(auth.email || ''),
+        name: String(auth.name || ''),
+        role: String(auth.role || ''),
+      };
+
+      if (auth.role === 'vendor') {
+        const app = await prisma.vendorApplication.findFirst({
+          where: { email: { equals: base.email, mode: 'insensitive' } },
+          orderBy: { createdAt: 'desc' },
+        });
+        return sendJson(res, 200, {
+          user: base,
+          vendorStatus: app?.status || 'pending_review',
+          vendorApplicationId: app?.id || null,
+        });
+      }
+
+      return sendJson(res, 200, { user: base });
+    }
+
+    if (req.method === 'POST' && (path === '/api/auth/signup/vendor' || path === '/api/vendor/apply')) {
       if (enforceRateLimit(req, res, 'auth')) return;
       const body = await readBody(req);
       const required = ['businessName', 'contactName', 'email'];
@@ -1764,7 +2133,7 @@ createServer(async (req, res) => {
       });
     }
 
-    if (req.method === 'POST' && path === '/api/marketplace/bookings/request') {
+    if (req.method === 'POST' && (path === '/api/marketplace/bookings/request' || path === '/api/bookings/service/request')) {
       ensureStructuredFlowEnabled();
       const auth = requireJwt(req, 'customer');
       const body = await readBody(req);
@@ -1812,6 +2181,8 @@ createServer(async (req, res) => {
         });
 
         let runningTotal = 0;
+        let runningTotalCents = 0;
+        const vendorIds = new Set();
         for (const item of itemsInput) {
           const serviceId = String(item.serviceId || '').trim();
           if (!serviceId) throw httpError(400, 'Each booking item needs serviceId');
@@ -1845,6 +2216,8 @@ createServer(async (req, res) => {
           const priceOffered = centsToLegacyPrice(initialCents);
 
           runningTotal += priceOffered;
+          runningTotalCents += initialCents;
+          vendorIds.add(service.vendorId);
           const bookingItem = await tx.bookingItem.create({
             data: {
               bookingId: booking.id,
@@ -1876,6 +2249,12 @@ createServer(async (req, res) => {
               breakdownJson: item.breakdown || null,
             },
           });
+          await appendNegotiationMessage(tx, {
+            bookingId: booking.id,
+            senderRole: 'CUSTOMER',
+            proposedCents: initialCents,
+            reason: normalizeOptionalString(item.reason || item.vendorMessage, 400),
+          });
 
           await tx.analyticsEvent.create({
             data: {
@@ -1890,7 +2269,11 @@ createServer(async (req, res) => {
 
         const updated = await tx.booking.update({
           where: { id: booking.id },
-          data: { totalPrice: runningTotal },
+          data: {
+            totalPrice: runningTotal,
+            vendorId: vendorIds.size === 1 ? Array.from(vendorIds)[0] : null,
+            grossAmount: Number((runningTotalCents / 100).toFixed(2)),
+          },
           include: {
             items: true,
           },
@@ -1977,6 +2360,12 @@ createServer(async (req, res) => {
             reason,
             breakdownJson: body.breakdown || null,
           },
+        });
+        await appendNegotiationMessage(tx, {
+          bookingId,
+          senderRole: actorRole === 'vendor' ? 'VENDOR' : 'CUSTOMER',
+          proposedCents: priceCents,
+          reason,
         });
 
         await tx.bookingItem.update({
@@ -2066,6 +2455,12 @@ createServer(async (req, res) => {
             priceCents: item.latestPriceCents || null,
           },
         });
+        await appendNegotiationMessage(tx, {
+          bookingId,
+          senderRole: actorRole === 'vendor' ? 'VENDOR' : 'CUSTOMER',
+          proposedCents: item.latestPriceCents || null,
+          reason: actorRole === 'vendor' ? 'Vendor accepted offer.' : 'Customer accepted offer.',
+        });
 
         const nextCustomerAccepted = actorRole === 'customer' ? offerVersion : item.customerAcceptedVersion;
         const nextVendorAccepted = actorRole === 'vendor' ? offerVersion : item.vendorAcceptedVersion;
@@ -2149,6 +2544,12 @@ createServer(async (req, res) => {
             reason: reason || null,
             priceCents: item.latestPriceCents || null,
           },
+        });
+        await appendNegotiationMessage(tx, {
+          bookingId,
+          senderRole: actorRole === 'vendor' ? 'VENDOR' : 'CUSTOMER',
+          proposedCents: item.latestPriceCents || null,
+          reason: reason || 'Offer declined.',
         });
 
         await tx.bookingItem.update({
@@ -2294,6 +2695,7 @@ createServer(async (req, res) => {
               ...agreement,
               required: booking.status === 'accepted',
               customerAccepted: Boolean(agreement.agreementAcceptedByCustomerAt),
+              vendorAccepted: Boolean(agreement.agreementAcceptedByVendorAt),
             },
           },
           items,
@@ -2303,10 +2705,13 @@ createServer(async (req, res) => {
       return sendJson(res, 200, payload);
     }
 
-    if (req.method === 'POST' && path.match(/^\/api\/bookings\/[^/]+\/agreement\/accept$/)) {
+    if (
+      req.method === 'POST'
+      && (path.match(/^\/api\/bookings\/[^/]+\/agreement\/accept$/) || path.match(/^\/api\/agreements\/[^/]+\/accept$/))
+    ) {
       ensureStructuredFlowEnabled();
       const auth = requireJwt(req, 'customer');
-      const bookingId = path.split('/')[3];
+      const bookingId = path.startsWith('/api/agreements/') ? path.split('/')[3] : path.split('/')[3];
       const body = await readBody(req);
       const customerEmail = normalizeOptionalString(body.customerEmail || auth.email, 320);
       if (!customerEmail) return sendJson(res, 400, { error: 'customerEmail is required' });
@@ -2336,6 +2741,11 @@ createServer(async (req, res) => {
         where: { bookingId, type: 'vendor_accepted' },
         orderBy: { createdAt: 'desc' },
       });
+      const finalTotalCents = booking.items.reduce(
+        (sum, item) => sum + Number(item.finalPriceCents || item.latestPriceCents || 0),
+        0,
+      );
+      const totals = computeTotalsFromGross(finalTotalCents);
       const agreement = await updateServiceAgreementRecord(bookingId, (current) => ({
         ...current,
         agreementVersion: normalizeOptionalString(body.agreementVersion, 32) || SERVICE_AGREEMENT_VERSION,
@@ -2344,13 +2754,29 @@ createServer(async (req, res) => {
         agreementAcceptedByVendorAt:
           current.agreementAcceptedByVendorAt
           || (lastVendorAcceptEvent?.createdAt ? new Date(lastVendorAcceptEvent.createdAt).toISOString() : null),
+        netAmount: totals.netAmount,
+        vatAmount: totals.vatAmount,
+        grossAmount: totals.grossAmount,
+        platformFee: totals.platformFee,
+        vendorNetAmount: totals.vendorNetAmount,
       }));
+      await prisma.booking.update({
+        where: { id: bookingId },
+        data: {
+          agreedNetAmount: Number((totals.netAmount / 100).toFixed(2)),
+          vatAmount: Number((totals.vatAmount / 100).toFixed(2)),
+          grossAmount: Number((totals.grossAmount / 100).toFixed(2)),
+          platformFee: Number((totals.platformFee / 100).toFixed(2)),
+          vendorNetAmount: Number((totals.vendorNetAmount / 100).toFixed(2)),
+        },
+      });
 
       return sendJson(res, 200, {
         agreement: {
           ...agreement,
           required: true,
           customerAccepted: true,
+          vendorAccepted: Boolean(agreement.agreementAcceptedByVendorAt),
         },
       });
     }
@@ -2390,6 +2816,9 @@ createServer(async (req, res) => {
         if (!agreement.agreementAcceptedByCustomerAt) {
           throw httpError(400, 'Customer must accept the service agreement before checkout');
         }
+        if (!agreement.agreementAcceptedByVendorAt) {
+          throw httpError(400, 'Vendor must accept the service agreement before checkout');
+        }
 
         const notReadyVendors = [];
         for (const item of booking.items) {
@@ -2418,6 +2847,7 @@ createServer(async (req, res) => {
           0,
         );
         if (finalTotalCents <= 0) throw httpError(400, 'Final total must be greater than zero');
+        const totals = computeTotalsFromGross(finalTotalCents);
 
         const invoice = await tx.invoice.upsert({
           where: { bookingId },
@@ -2441,6 +2871,14 @@ createServer(async (req, res) => {
           customer_email: customerEmail,
           success_url: successUrl,
           cancel_url: cancelUrl,
+          payment_intent_data: {
+            transfer_group: `booking_${booking.id}`,
+            metadata: {
+              bookingId: booking.id,
+              invoiceId: invoice.id,
+              customerEmail,
+            },
+          },
           line_items: [
             {
               quantity: 1,
@@ -2466,6 +2904,17 @@ createServer(async (req, res) => {
         await tx.invoice.update({
           where: { id: invoice.id },
           data: { stripeSessionId: session.id },
+        });
+        await tx.booking.update({
+          where: { id: booking.id },
+          data: {
+            stripeSessionId: session.id,
+            grossAmount: Number((finalTotalCents / 100).toFixed(2)),
+            agreedNetAmount: Number((totals.netAmount / 100).toFixed(2)),
+            vatAmount: Number((totals.vatAmount / 100).toFixed(2)),
+            platformFee: Number((totals.platformFee / 100).toFixed(2)),
+            vendorNetAmount: Number((totals.vendorNetAmount / 100).toFixed(2)),
+          },
         });
 
         return { sessionId: session.id, url: session.url, invoiceId: invoice.id };
@@ -2544,6 +2993,18 @@ createServer(async (req, res) => {
           await tx.bookingItem.update({
             where: { id: item.id },
             data: updateData,
+          });
+
+          await appendNegotiationMessage(tx, {
+            bookingId,
+            senderRole: 'VENDOR',
+            proposedCents:
+              nextStatus === 'counter_offered'
+                ? toPositiveInt(Number(decision.counterPrice || 0) * 100, 'counterPrice')
+                : (nextStatus === 'accepted'
+                  ? toPositiveInt(Number(decision.finalPrice || item.priceOffered) * 100, 'finalPrice')
+                  : null),
+            reason: decision.vendorMessage || (nextStatus === 'declined' ? 'Declined by vendor.' : null),
           });
         }
 
@@ -2774,6 +3235,41 @@ createServer(async (req, res) => {
       return sendJson(res, 200, { requests: requests.map(serializeRequest) });
     }
 
+    if (req.method === 'GET' && path.match(/^\/api\/requests\/[^/]+\/responses$/)) {
+      ensureLegacyFlowEnabled();
+      const auth = requireJwt(req, 'customer', 'vendor', 'admin');
+      await expireStaleRequests();
+      const requestId = path.split('/')[3];
+      const request = await prisma.serviceRequest.findUnique({
+        where: { id: requestId },
+        include: { offers: { orderBy: { createdAt: 'desc' } } },
+      });
+      if (!request) return sendJson(res, 404, { error: 'Request not found' });
+
+      if (auth.role === 'customer' && request.customerEmail.toLowerCase() !== String(auth.email || '').toLowerCase()) {
+        return sendJson(res, 403, { error: 'You can only read responses for your own requests' });
+      }
+      if (auth.role === 'vendor') {
+        request.offers = request.offers.filter(
+          (offer) => String(offer.vendorEmail || '').toLowerCase() === String(auth.email || '').toLowerCase(),
+        );
+      }
+
+      return sendJson(res, 200, {
+        request: serializeRequest({ ...request, offers: [] }),
+        responses: request.offers.map((offer) => ({
+          id: offer.id,
+          vendorName: offer.vendorName,
+          vendorEmail: offer.vendorEmail || null,
+          status: offer.status,
+          proposedPrice: Number(offer.price),
+          message: offer.message || null,
+          paymentStatus: offer.paymentStatus || 'unpaid',
+          createdAt: offer.createdAt,
+        })),
+      });
+    }
+
     if (req.method === 'GET' && path === '/api/vendor/offers') {
       ensureLegacyFlowEnabled();
       const auth = requireJwt(req, 'vendor', 'admin');
@@ -2835,7 +3331,7 @@ createServer(async (req, res) => {
       });
     }
 
-    if (req.method === 'GET' && path === '/api/admin/vendor-applications') {
+    if (req.method === 'GET' && (path === '/api/admin/vendor-applications' || path === '/api/admin/vendors')) {
       const applications = await prisma.vendorApplication.findMany({
         orderBy: { createdAt: 'desc' },
       });
@@ -2850,7 +3346,48 @@ createServer(async (req, res) => {
           };
         }),
       );
+      if (path === '/api/admin/vendors') {
+        return sendJson(res, 200, { vendors: enriched, applications: enriched });
+      }
       return sendJson(res, 200, { applications: enriched });
+    }
+
+    if (req.method === 'POST' && path.match(/^\/api\/admin\/vendors\/[^/]+\/(approve|reject|suspend)$/)) {
+      const [, , , , applicationId, action] = path.split('/');
+      const existing = await prisma.vendorApplication.findUnique({ where: { id: applicationId } });
+      if (!existing) return sendJson(res, 404, { error: 'Vendor application not found' });
+
+      let nextStatus = existing.status;
+      if (action === 'approve') nextStatus = 'approved';
+      if (action === 'reject') nextStatus = 'rejected';
+
+      const updated = await prisma.vendorApplication.update({
+        where: { id: applicationId },
+        data: {
+          status: nextStatus,
+          reviewedAt: action === 'suspend' ? existing.reviewedAt : new Date(),
+        },
+      });
+
+      await prisma.$transaction(async (tx) => {
+        const fresh = await tx.vendorApplication.findUnique({ where: { id: applicationId } });
+        if (!fresh) return;
+        await syncVendorProfileActivationStatus(tx, fresh);
+        if (action === 'suspend') {
+          const identity = await ensureVendorIdentityFromApplication(tx, fresh);
+          await tx.vendorProfile.update({
+            where: { id: identity.vendorProfile.id },
+            data: { status: 'suspended' },
+          });
+        }
+      });
+
+      await writeAdminAuditLog(req, `vendor_${action}`, applicationId, {
+        previousStatus: existing.status,
+        nextStatus: updated.status,
+      });
+
+      return sendJson(res, 200, { application: updated });
     }
 
     if (req.method === 'GET' && path === '/api/admin/vendor-compliance') {
@@ -2879,8 +3416,168 @@ createServer(async (req, res) => {
       });
     }
 
+    if (req.method === 'GET' && path === '/api/admin/payouts') {
+      if (!supportsPrismaModel('payout')) {
+        return sendJson(res, 200, { payouts: [], note: 'payout model is not available yet' });
+      }
+      const rows = await prisma.payout.findMany({
+        include: {
+          vendor: {
+            include: {
+              user: { select: { email: true, name: true } },
+            },
+          },
+          booking: {
+            include: {
+              customer: { select: { email: true, name: true } },
+              invoice: { select: { id: true, status: true, stripeSessionId: true, paidAt: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+      });
+
+      return sendJson(res, 200, {
+        payouts: rows.map((row) => ({
+          id: row.id,
+          bookingId: row.bookingId,
+          vendorId: row.vendorId,
+          vendorName: row.vendor?.user?.name || null,
+          vendorEmail: row.vendor?.user?.email || null,
+          customerName: row.booking?.customer?.name || null,
+          customerEmail: row.booking?.customer?.email || null,
+          invoiceId: row.booking?.invoice?.id || null,
+          invoiceStatus: row.booking?.invoice?.status || null,
+          invoiceStripeSessionId: row.booking?.invoice?.stripeSessionId || null,
+          invoicePaidAt: row.booking?.invoice?.paidAt || null,
+          bookingStatus: row.booking?.status || null,
+          grossAmount: row.grossAmount,
+          platformFee: row.platformFee,
+          vendorNetAmount: row.vendorNetAmount,
+          stripeTransferId: row.stripeTransferId || null,
+          status: row.status,
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+        })),
+      });
+    }
+
+    if (req.method === 'GET' && path === '/api/admin/payments') {
+      const [invoiceCounts, payoutCounts, recentInvoices, recentPayouts] = await Promise.all([
+        prisma.invoice.groupBy({
+          by: ['status'],
+          _count: { _all: true },
+        }),
+        supportsPrismaModel('payout')
+          ? prisma.payout.groupBy({
+              by: ['status'],
+              _count: { _all: true },
+            })
+          : Promise.resolve([]),
+        prisma.invoice.findMany({
+          orderBy: { createdAt: 'desc' },
+          take: 100,
+          include: {
+            booking: {
+              include: {
+                customer: { select: { email: true, name: true } },
+              },
+            },
+          },
+        }),
+        supportsPrismaModel('payout')
+          ? prisma.payout.findMany({
+              orderBy: { createdAt: 'desc' },
+              take: 100,
+              include: {
+                vendor: {
+                  include: { user: { select: { email: true, name: true } } },
+                },
+                booking: true,
+              },
+            })
+          : Promise.resolve([]),
+      ]);
+
+      return sendJson(res, 200, {
+        summary: {
+          invoices: Object.fromEntries(invoiceCounts.map((r) => [r.status, r._count._all])),
+          payouts: Object.fromEntries((payoutCounts || []).map((r) => [r.status, r._count._all])),
+        },
+        invoices: recentInvoices.map((row) => ({
+          id: row.id,
+          bookingId: row.bookingId,
+          amount: row.amount,
+          status: row.status,
+          stripeSessionId: row.stripeSessionId || null,
+          issuedAt: row.issuedAt,
+          paidAt: row.paidAt,
+          failedAt: row.failedAt,
+          customerEmail: row.booking?.customer?.email || null,
+          customerName: row.booking?.customer?.name || null,
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+        })),
+        payouts: (recentPayouts || []).map((row) => ({
+          id: row.id,
+          bookingId: row.bookingId,
+          vendorId: row.vendorId,
+          vendorEmail: row.vendor?.user?.email || null,
+          vendorName: row.vendor?.user?.name || null,
+          grossAmount: row.grossAmount,
+          platformFee: row.platformFee,
+          vendorNetAmount: row.vendorNetAmount,
+          stripeTransferId: row.stripeTransferId || null,
+          status: row.status,
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+        })),
+      });
+    }
+
+    if (req.method === 'POST' && path.match(/^\/api\/admin\/payouts\/[^/]+\/release$/)) {
+      const payoutId = path.split('/')[4];
+      if (!supportsPrismaModel('payout')) return sendJson(res, 400, { error: 'payout model is not available yet' });
+      const payout = await prisma.payout.findUnique({ where: { id: payoutId } });
+      if (!payout) return sendJson(res, 404, { error: 'Payout not found' });
+      if (payout.status === 'paid' && payout.stripeTransferId) {
+        return sendJson(res, 200, { released: false, reason: 'Payout already released' });
+      }
+
+      await retryPayoutTransfersForBooking(payout.bookingId);
+      await writeAdminAuditLog(req, 'payout_release_retry', payoutId, {
+        bookingId: payout.bookingId,
+        vendorId: payout.vendorId,
+      });
+
+      const refreshed = await prisma.payout.findUnique({ where: { id: payoutId } });
+      return sendJson(res, 200, { released: true, payout: refreshed });
+    }
+
+    if (req.method === 'GET' && path === '/api/admin/audit-logs') {
+      if (!supportsPrismaModel('adminAuditLog')) {
+        return sendJson(res, 200, { logs: [], note: 'adminAuditLog model is not available yet' });
+      }
+      const rows = await prisma.adminAuditLog.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 300,
+      });
+      return sendJson(res, 200, {
+        logs: rows.map((row) => ({
+          id: row.id,
+          adminId: row.adminId,
+          action: row.action,
+          targetId: row.targetId || null,
+          metaJson: row.metaJson || null,
+          createdAt: row.createdAt,
+        })),
+      });
+    }
+
     if (req.method === 'POST' && path === '/api/admin/vendor-compliance/backfill') {
       const result = await backfillAllLegacyVendorComplianceToDb();
+      await writeAdminAuditLog(req, 'vendor_compliance_backfill', null, result);
       return sendJson(res, 200, {
         ...result,
         note: 'Legacy JSON vendor compliance backfilled into Prisma vendorCompliance table.',
@@ -2911,6 +3608,11 @@ createServer(async (req, res) => {
         const fresh = await tx.vendorApplication.findUnique({ where: { id: applicationId } });
         if (!fresh) return;
         await syncVendorProfileActivationStatus(tx, fresh);
+      });
+      await writeAdminAuditLog(req, 'vendor_application_status_updated', applicationId, {
+        previousStatus: existing.status,
+        nextStatus: updated.status,
+        reviewNote: updated.reviewNote || null,
       });
 
       if (status === 'approved') {
@@ -3094,7 +3796,10 @@ createServer(async (req, res) => {
       });
     }
 
-    if (req.method === 'POST' && path === '/api/vendor/posts') {
+    if (
+      req.method === 'POST'
+      && (path === '/api/vendor/posts' || path === '/api/vendor/services' || path === '/api/vendor/venues')
+    ) {
       const body = await readBody(req);
       const vendorEmail = (body.vendorEmail || '').trim();
       if (!vendorEmail) return sendJson(res, 400, { error: 'vendorEmail is required' });
@@ -3103,7 +3808,8 @@ createServer(async (req, res) => {
       });
       if (!vendor) return sendJson(res, 404, { error: 'Vendor profile not found' });
       await assertVendorCanPublishOrRespond(vendor);
-      const { title, serviceName } = body;
+      const title = body.title;
+      const serviceName = body.serviceName || (path === '/api/vendor/venues' ? 'Venue' : null);
       if (!title || !serviceName) return sendJson(res, 400, { error: 'Missing required fields' });
       const post = await prisma.vendorPost.create({
         data: {
@@ -3120,7 +3826,10 @@ createServer(async (req, res) => {
       return sendJson(res, 201, { post });
     }
 
-    if (req.method === 'PATCH' && path.match(/^\/api\/vendor\/posts\/[^/]+$/)) {
+    if (
+      req.method === 'PATCH'
+      && (path.match(/^\/api\/vendor\/posts\/[^/]+$/) || path.match(/^\/api\/vendor\/services\/[^/]+$/) || path.match(/^\/api\/vendor\/venues\/[^/]+$/))
+    ) {
       const postId = path.split('/')[4];
       const body = await readBody(req);
       const vendorEmail = (body.vendorEmail || '').trim();
@@ -3171,7 +3880,10 @@ createServer(async (req, res) => {
       return sendJson(res, 201, { inquiry });
     }
 
-    if (req.method === 'POST' && path.match(/^\/api\/requests\/[^/]+\/offers$/)) {
+    if (
+      req.method === 'POST'
+      && (path.match(/^\/api\/requests\/[^/]+\/offers$/) || path.match(/^\/api\/requests\/[^/]+\/respond$/))
+    ) {
       ensureLegacyFlowEnabled();
       const auth = requireJwt(req, 'vendor');
       await expireStaleRequests();
@@ -3237,7 +3949,10 @@ createServer(async (req, res) => {
       return sendJson(res, 200, { compliance: buildVendorActivationState(vendor, compliance) });
     }
 
-    if (req.method === 'POST' && path === '/api/vendor/compliance/contract-accept') {
+    if (
+      req.method === 'POST'
+      && (path === '/api/vendor/compliance/contract-accept' || path === '/api/vendor/contract/accept')
+    ) {
       const auth = requireJwt(req, 'vendor');
       const body = await readBody(req);
       const vendorEmail = normalizeOptionalString(body.vendorEmail || auth.email, 320);
@@ -3266,7 +3981,10 @@ createServer(async (req, res) => {
       return sendJson(res, 200, { compliance: buildVendorActivationState(vendor, accepted) });
     }
 
-    if (req.method === 'POST' && path === '/api/vendor/compliance/training-complete') {
+    if (
+      req.method === 'POST'
+      && (path === '/api/vendor/compliance/training-complete' || path === '/api/vendor/training/complete')
+    ) {
       const auth = requireJwt(req, 'vendor');
       const body = await readBody(req);
       const vendorEmail = normalizeOptionalString(body.vendorEmail || auth.email, 320);
@@ -3349,6 +4067,12 @@ createServer(async (req, res) => {
 
       const updatedOffer = await prisma.vendorOffer.findUnique({ where: { id: offerId } });
       const updatedRequest = await prisma.serviceRequest.findUnique({ where: { id: requestId } });
+      if (isAdmin) {
+        await writeAdminAuditLog(req, 'request_offer_status_updated', offerId, {
+          requestId,
+          nextStatus: status,
+        });
+      }
 
       return sendJson(res, 200, {
         offer: updatedOffer

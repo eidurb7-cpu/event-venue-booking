@@ -137,7 +137,16 @@ export interface MarketplaceBookingItem {
   serviceId: string;
   priceOffered: number;
   finalPrice?: number | null;
-  status: 'pending' | 'accepted' | 'declined' | 'counter_offered' | 'cancelled';
+  status:
+    | 'requested'
+    | 'countered'
+    | 'agreed'
+    | 'pending'
+    | 'accepted'
+    | 'declined'
+    | 'counter_offered'
+    | 'expired'
+    | 'cancelled';
   vendorMessage?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -211,6 +220,7 @@ export interface BookingThread {
       agreementAcceptedByVendorAt?: string | null;
       required: boolean;
       customerAccepted: boolean;
+      vendorAccepted: boolean;
     };
   };
   items: BookingThreadItem[];
@@ -235,6 +245,14 @@ export interface MarketplaceBooking {
     issuedAt?: string | null;
     paidAt?: string | null;
   } | null;
+}
+
+export function getMe() {
+  return request('/api/me', { method: 'GET' }) as Promise<{
+    user: { id: string; email: string; name: string; role: string };
+    vendorStatus?: string;
+    vendorApplicationId?: string | null;
+  }>;
 }
 
 async function request(path: string, options: RequestInit = {}) {
@@ -280,6 +298,10 @@ export function signupCustomer(payload: { name: string; email: string; password:
 
 export function signupVendor(payload: Record<string, unknown>) {
   return request('/api/auth/signup/vendor', { method: 'POST', body: JSON.stringify(payload) });
+}
+
+export function applyVendor(payload: Record<string, unknown>) {
+  return request('/api/vendor/apply', { method: 'POST', body: JSON.stringify(payload) });
 }
 
 export function verifyVendorGoogleToken(idToken: string) {
@@ -349,11 +371,37 @@ export function getCustomerRequests(customerEmail: string) {
   return request(`/api/requests?customerEmail=${encodeURIComponent(customerEmail)}`) as Promise<{ requests: ServiceRequest[] }>;
 }
 
+export function getRequestResponses(requestId: string) {
+  return request(`/api/requests/${requestId}/responses`) as Promise<{
+    request: ServiceRequest;
+    responses: Array<{
+      id: string;
+      vendorName: string;
+      vendorEmail?: string | null;
+      status: string;
+      proposedPrice: number;
+      message?: string | null;
+      paymentStatus?: string;
+      createdAt: string;
+    }>;
+  }>;
+}
+
 export function applyVendorOffer(
   requestId: string,
   payload: { vendorName: string; vendorEmail?: string; price: number; message?: string },
 ) {
   return request(`/api/requests/${requestId}/offers`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function respondToRequest(
+  requestId: string,
+  payload: { vendorName: string; vendorEmail?: string; price: number; message?: string },
+) {
+  return request(`/api/requests/${requestId}/respond`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });
@@ -393,8 +441,22 @@ export function acceptVendorContract(payload: { vendorEmail: string; contractVer
   }) as Promise<{ compliance: VendorCompliance }>;
 }
 
+export function acceptVendorContractSpec(payload: { vendorEmail: string; contractVersion?: string }) {
+  return request('/api/vendor/contract/accept', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }) as Promise<{ compliance: VendorCompliance }>;
+}
+
 export function completeVendorTraining(payload: { vendorEmail: string }) {
   return request('/api/vendor/compliance/training-complete', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }) as Promise<{ compliance: VendorCompliance }>;
+}
+
+export function completeVendorTrainingSpec(payload: { vendorEmail: string }) {
+  return request('/api/vendor/training/complete', {
     method: 'POST',
     body: JSON.stringify(payload),
   }) as Promise<{ compliance: VendorCompliance }>;
@@ -473,6 +535,34 @@ export function getAdminVendorApplications(adminKey: string) {
   }) as Promise<{ applications: VendorApplication[] }>;
 }
 
+export function getAdminVendors(adminKey: string) {
+  return request('/api/admin/vendors', {
+    method: 'GET',
+    headers: withAdminToken(adminKey),
+  }) as Promise<{ vendors: VendorApplication[] }>;
+}
+
+export function adminApproveVendor(adminKey: string, applicationId: string) {
+  return request(`/api/admin/vendors/${applicationId}/approve`, {
+    method: 'POST',
+    headers: withAdminToken(adminKey),
+  }) as Promise<{ application: VendorApplication }>;
+}
+
+export function adminRejectVendor(adminKey: string, applicationId: string) {
+  return request(`/api/admin/vendors/${applicationId}/reject`, {
+    method: 'POST',
+    headers: withAdminToken(adminKey),
+  }) as Promise<{ application: VendorApplication }>;
+}
+
+export function adminSuspendVendor(adminKey: string, applicationId: string) {
+  return request(`/api/admin/vendors/${applicationId}/suspend`, {
+    method: 'POST',
+    headers: withAdminToken(adminKey),
+  }) as Promise<{ application: VendorApplication }>;
+}
+
 export interface AdminVendorComplianceRow {
   id: string;
   vendorId: string;
@@ -492,11 +582,90 @@ export interface AdminVendorComplianceRow {
   createdAt: string;
 }
 
+export interface AdminPayoutRow {
+  id: string;
+  bookingId: string;
+  vendorId: string;
+  vendorName?: string | null;
+  vendorEmail?: string | null;
+  customerName?: string | null;
+  customerEmail?: string | null;
+  invoiceId?: string | null;
+  invoiceStatus?: string | null;
+  invoiceStripeSessionId?: string | null;
+  invoicePaidAt?: string | null;
+  bookingStatus?: string | null;
+  grossAmount: number;
+  platformFee: number;
+  vendorNetAmount: number;
+  stripeTransferId?: string | null;
+  status: 'pending' | 'paid' | 'failed';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminAuditLogRow {
+  id: string;
+  adminId: string;
+  action: string;
+  targetId?: string | null;
+  metaJson?: string | null;
+  createdAt: string;
+}
+
 export function getAdminVendorCompliance(adminKey: string) {
   return request('/api/admin/vendor-compliance', {
     method: 'GET',
     headers: withAdminToken(adminKey),
   }) as Promise<{ compliances: AdminVendorComplianceRow[]; note?: string }>;
+}
+
+export function getAdminPayouts(adminKey: string) {
+  return request('/api/admin/payouts', {
+    method: 'GET',
+    headers: withAdminToken(adminKey),
+  }) as Promise<{ payouts: AdminPayoutRow[]; note?: string }>;
+}
+
+export function releaseAdminPayout(adminKey: string, payoutId: string) {
+  return request(`/api/admin/payouts/${payoutId}/release`, {
+    method: 'POST',
+    headers: withAdminToken(adminKey),
+  }) as Promise<{ released: boolean; reason?: string; payout?: AdminPayoutRow }>;
+}
+
+export function getAdminAuditLogs(adminKey: string) {
+  return request('/api/admin/audit-logs', {
+    method: 'GET',
+    headers: withAdminToken(adminKey),
+  }) as Promise<{ logs: AdminAuditLogRow[]; note?: string }>;
+}
+
+export function getAdminPayments(adminKey: string) {
+  return request('/api/admin/payments', {
+    method: 'GET',
+    headers: withAdminToken(adminKey),
+  }) as Promise<{
+    summary: {
+      invoices: Record<string, number>;
+      payouts: Record<string, number>;
+    };
+    invoices: Array<{
+      id: string;
+      bookingId: string;
+      amount: number;
+      status: string;
+      stripeSessionId?: string | null;
+      issuedAt?: string | null;
+      paidAt?: string | null;
+      failedAt?: string | null;
+      customerEmail?: string | null;
+      customerName?: string | null;
+      createdAt: string;
+      updatedAt: string;
+    }>;
+    payouts: Array<AdminPayoutRow>;
+  }>;
 }
 
 export function backfillAdminVendorCompliance(adminKey: string) {
@@ -631,6 +800,25 @@ export function createMarketplaceBookingRequest(payload: {
   }) as Promise<{ booking: MarketplaceBooking }>;
 }
 
+export function createServiceBookingRequest(payload: {
+  customerEmail: string;
+  customerName: string;
+  customerPhone?: string;
+  address?: string;
+  eventDate: string;
+  expiresHours?: number;
+  items: Array<{
+    serviceId: string;
+    priceOffered?: number;
+    vendorMessage?: string;
+  }>;
+}) {
+  return request('/api/bookings/service/request', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }) as Promise<{ booking: MarketplaceBooking }>;
+}
+
 export function createBookingItemCounterOffer(
   bookingId: string,
   itemId: string,
@@ -711,6 +899,27 @@ export function acceptBookingAgreement(
       agreementAcceptedByVendorAt?: string | null;
       required: boolean;
       customerAccepted: boolean;
+      vendorAccepted: boolean;
+    };
+  }>;
+}
+
+export function acceptAgreementSpec(
+  bookingId: string,
+  payload: { customerEmail: string; agreementVersion?: string },
+) {
+  return request(`/api/agreements/${bookingId}/accept`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }) as Promise<{
+    agreement: {
+      agreementVersion?: string | null;
+      agreementAcceptedByCustomerAt?: string | null;
+      agreementAcceptedByCustomerIp?: string | null;
+      agreementAcceptedByVendorAt?: string | null;
+      required: boolean;
+      customerAccepted: boolean;
+      vendorAccepted: boolean;
     };
   }>;
 }

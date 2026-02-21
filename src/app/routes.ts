@@ -25,6 +25,7 @@ import VendorTerms from './pages/VendorTerms';
 import RefundPolicy from './pages/RefundPolicy';
 import Contact from './pages/Contact';
 import About from './pages/About';
+import PaymentsSecurity from './pages/PaymentsSecurity';
 import NotFound from './pages/NotFound';
 import RouteError from './pages/RouteError';
 
@@ -40,6 +41,10 @@ export const router = createBrowserRouter([
       { path: 'request', Component: RequestPage },
       { path: 'vendor-portfolio', Component: VendorPortfolio },
       { path: 'customer-portfolio', Component: CustomerPortfolio },
+      { path: 'dashboard/vendor', Component: VendorPortfolio },
+      { path: 'dashboard/admin', Component: AdminDashboard },
+      { path: 'account/customer', Component: CustomerPortfolio },
+      { path: 'dashboard/customer', Component: CustomerPortfolio },
       { path: 'login', Component: Login },
       { path: 'signup', Component: Signup },
       { path: 'admin', Component: AdminDashboard },
@@ -54,6 +59,7 @@ export const router = createBrowserRouter([
       { path: 'refund-policy', Component: RefundPolicy },
       { path: 'contact', Component: Contact },
       { path: 'about', Component: About },
+      { path: 'payments-security', Component: PaymentsSecurity },
       { path: 'booking-thread/:bookingId', Component: BookingThreadPage },
       { path: 'venue/:id', Component: VenueDetail },
       { path: 'booking', Component: Booking },

@@ -14,6 +14,7 @@ export function Footer() {
           </p>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
             <Link to="/about" className="text-slate-600 hover:text-slate-900">About</Link>
+            <Link to="/payments-security" className="text-slate-600 hover:text-slate-900">Payments & Security</Link>
             <Link to="/impressum" className="text-slate-600 hover:text-slate-900">{t('footer.impressum')}</Link>
             <Link to="/privacy" className="text-slate-600 hover:text-slate-900">{t('footer.privacy')}</Link>
             <Link to="/terms" className="text-slate-600 hover:text-slate-900">{t('footer.terms')}</Link>

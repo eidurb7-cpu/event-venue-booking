@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Cell, LineChart, Line } from 'recharts';
 import {
+  AdminAuditLogRow,
+  AdminPayoutRow,
   AdminVendorComplianceRow,
   ServiceRequest,
   VendorApplication,
   adminLogin,
   backfillAdminVendorCompliance,
+  getAdminAuditLogs,
+  getAdminPayouts,
   getAdminInquiries,
   getAdminOverview,
   getAdminRequests,
@@ -14,6 +18,7 @@ import {
   seedAdminServices,
   seedAdminVendors,
   setOfferStatus,
+  releaseAdminPayout,
   updateVendorApplicationStatus,
 } from '../utils/api';
 import { clearAdminSession, getAdminToken, getAdminUser, setAdminSession } from '../utils/auth';
@@ -65,6 +70,9 @@ export default function AdminDashboard() {
   const [openRequestIds, setOpenRequestIds] = useState<Record<string, boolean>>({});
   const [selectedApplication, setSelectedApplication] = useState<VendorApplication | null>(null);
   const [compliances, setCompliances] = useState<AdminVendorComplianceRow[]>([]);
+  const [payouts, setPayouts] = useState<AdminPayoutRow[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AdminAuditLogRow[]>([]);
+  const [releasingPayoutId, setReleasingPayoutId] = useState('');
   const [backfillingCompliance, setBackfillingCompliance] = useState(false);
   const appStatusByEmail = Object.fromEntries(applications.map((app) => [String(app.email || '').toLowerCase(), app.status]));
 
@@ -127,11 +135,13 @@ export default function AdminDashboard() {
     setLoading(true);
     setError('');
     try {
-      const [overviewData, applicationsData, requestsData, inquiriesData] = await Promise.all([
+      const [overviewData, applicationsData, requestsData, inquiriesData, payoutData, auditData] = await Promise.all([
         getAdminOverview(token),
         getAdminVendorApplications(token),
         getAdminRequests(token),
         getAdminInquiries(token),
+        getAdminPayouts(token).catch(() => ({ payouts: [] as AdminPayoutRow[] })),
+        getAdminAuditLogs(token).catch(() => ({ logs: [] as AdminAuditLogRow[] })),
       ]);
       const complianceData = await getAdminVendorCompliance(token).catch(() => ({ compliances: [] as AdminVendorComplianceRow[] }));
       setOverview(overviewData.overview);
@@ -139,6 +149,8 @@ export default function AdminDashboard() {
       setRequests(requestsData.requests);
       setInquiries(inquiriesData.inquiries);
       setCompliances(complianceData.compliances || []);
+      setPayouts(payoutData.payouts || []);
+      setAuditLogs(auditData.logs || []);
       setAdminToken(token);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Fehler beim Laden des Admin Dashboards.');
@@ -177,7 +189,25 @@ export default function AdminDashboard() {
     setOverview(null);
     setApplications([]);
     setRequests([]);
+    setPayouts([]);
+    setAuditLogs([]);
     setError('');
+  };
+
+  const retryPayoutRelease = async (payoutId: string) => {
+    setError('');
+    setReleasingPayoutId(payoutId);
+    try {
+      const result = await releaseAdminPayout(adminToken, payoutId);
+      if (!result.released && result.reason) {
+        setError(result.reason);
+      }
+      await loadDashboard();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to release payout.');
+    } finally {
+      setReleasingPayoutId('');
+    }
   };
 
   const updateApplication = async (applicationId: string, status: 'approved' | 'rejected' | 'pending_review') => {
@@ -694,6 +724,118 @@ export default function AdminDashboard() {
                       <td className="py-2 pr-3">{row.connectOnboardingStatus || 'NOT_STARTED'}</td>
                       <td className="py-2 pr-3">{row.payoutsEnabled ? 'enabled' : 'disabled'}</td>
                       <td className="py-2 pr-3">{row.updatedAt ? new Date(row.updatedAt).toLocaleString() : '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+            <h2 className="text-xl font-semibold text-gray-900">Payout Transfers</h2>
+            <p className="text-xs text-gray-500">Last {payouts.length} payout rows</p>
+          </div>
+          {payouts.length === 0 ? (
+            <p className="text-sm text-gray-600">No payout rows found yet.</p>
+          ) : (
+            <div className="overflow-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left border-b border-gray-200">
+                    <th className="py-2 pr-3">Vendor</th>
+                    <th className="py-2 pr-3">Booking</th>
+                    <th className="py-2 pr-3">Invoice</th>
+                    <th className="py-2 pr-3">Amounts (EUR)</th>
+                    <th className="py-2 pr-3">Transfer</th>
+                    <th className="py-2 pr-3">Status</th>
+                    <th className="py-2 pr-3">Action</th>
+                    <th className="py-2 pr-3">Updated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payouts.map((row) => (
+                    <tr key={row.id} className="border-b border-gray-100">
+                      <td className="py-2 pr-3">
+                        <div className="font-medium">{row.vendorName || '-'}</div>
+                        <div className="text-xs text-gray-500">{row.vendorEmail || '-'}</div>
+                      </td>
+                      <td className="py-2 pr-3">
+                        <div className="font-mono text-xs">{row.bookingId}</div>
+                        <div className="text-xs text-gray-500">{row.bookingStatus || '-'}</div>
+                      </td>
+                      <td className="py-2 pr-3">
+                        <div className="font-mono text-xs">{row.invoiceId || '-'}</div>
+                        <div className="text-xs text-gray-500">{row.invoiceStatus || '-'}</div>
+                      </td>
+                      <td className="py-2 pr-3">
+                        <div>Gross: {(Number(row.grossAmount || 0) / 100).toFixed(2)}</div>
+                        <div>Fee: {(Number(row.platformFee || 0) / 100).toFixed(2)}</div>
+                        <div>Vendor: {(Number(row.vendorNetAmount || 0) / 100).toFixed(2)}</div>
+                      </td>
+                      <td className="py-2 pr-3">
+                        <div className="font-mono text-xs break-all">{row.stripeTransferId || '-'}</div>
+                      </td>
+                      <td className="py-2 pr-3">
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs ${
+                          row.status === 'paid'
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : row.status === 'failed'
+                              ? 'bg-rose-100 text-rose-700'
+                              : 'bg-amber-100 text-amber-700'
+                        }`}>{row.status}</span>
+                      </td>
+                      <td className="py-2 pr-3">
+                        {row.status !== 'paid' ? (
+                          <button
+                            type="button"
+                            onClick={() => retryPayoutRelease(row.id)}
+                            disabled={releasingPayoutId === row.id}
+                            className="rounded-md border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-60"
+                          >
+                            {releasingPayoutId === row.id ? 'Releasing...' : 'Retry release'}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-gray-500">-</span>
+                        )}
+                      </td>
+                      <td className="py-2 pr-3">{row.updatedAt ? new Date(row.updatedAt).toLocaleString() : '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+            <h2 className="text-xl font-semibold text-gray-900">Admin Audit Log</h2>
+            <p className="text-xs text-gray-500">Last {auditLogs.length} entries</p>
+          </div>
+          {auditLogs.length === 0 ? (
+            <p className="text-sm text-gray-600">No audit entries found.</p>
+          ) : (
+            <div className="overflow-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left border-b border-gray-200">
+                    <th className="py-2 pr-3">When</th>
+                    <th className="py-2 pr-3">Admin</th>
+                    <th className="py-2 pr-3">Action</th>
+                    <th className="py-2 pr-3">Target</th>
+                    <th className="py-2 pr-3">Meta</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditLogs.map((row) => (
+                    <tr key={row.id} className="border-b border-gray-100">
+                      <td className="py-2 pr-3">{row.createdAt ? new Date(row.createdAt).toLocaleString() : '-'}</td>
+                      <td className="py-2 pr-3 font-mono text-xs">{row.adminId}</td>
+                      <td className="py-2 pr-3">{row.action}</td>
+                      <td className="py-2 pr-3 font-mono text-xs">{row.targetId || '-'}</td>
+                      <td className="py-2 pr-3 text-xs text-gray-600">{row.metaJson || '-'}</td>
                     </tr>
                   ))}
                 </tbody>

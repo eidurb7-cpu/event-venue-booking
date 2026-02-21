@@ -24,7 +24,11 @@ export default function BookingThreadPage() {
 
   const agreedTotalCents = useMemo(() => sumAgreedCents(thread), [thread]);
   const agreementAccepted = Boolean(thread?.booking.agreement?.customerAccepted);
-  const canCheckout = thread?.booking.status === 'accepted' && actorRole === 'customer' && agreementAccepted;
+  const vendorAgreementAccepted = Boolean(thread?.booking.agreement?.vendorAccepted);
+  const canCheckout = thread?.booking.status === 'accepted'
+    && actorRole === 'customer'
+    && agreementAccepted
+    && vendorAgreementAccepted;
 
   async function loadThread() {
     if (!bookingId) return;
@@ -120,7 +124,7 @@ export default function BookingThreadPage() {
       </div>
 
       <div className="mt-5 rounded-xl border border-slate-200 bg-white p-4">
-        <p className="text-sm text-slate-600">Checkout is enabled only when booking status is ACCEPTED and service agreement is accepted.</p>
+        <p className="text-sm text-slate-600">Checkout is enabled only when booking status is ACCEPTED and both parties accepted the service agreement.</p>
         {thread?.booking.status === 'accepted' && actorRole === 'customer' && (
           <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
             {!agreementAccepted ? (
@@ -146,9 +150,16 @@ export default function BookingThreadPage() {
                 </button>
               </>
             ) : (
-              <p className="text-sm text-emerald-700">
-                Service agreement accepted at {new Date(thread.booking.agreement?.agreementAcceptedByCustomerAt || '').toLocaleString()}.
-              </p>
+              <div className="space-y-1 text-sm">
+                <p className="text-emerald-700">
+                  Customer accepted at {new Date(thread.booking.agreement?.agreementAcceptedByCustomerAt || '').toLocaleString()}.
+                </p>
+                <p className={vendorAgreementAccepted ? 'text-emerald-700' : 'text-amber-700'}>
+                  {vendorAgreementAccepted
+                    ? `Vendor accepted at ${new Date(thread.booking.agreement?.agreementAcceptedByVendorAt || '').toLocaleString()}.`
+                    : 'Waiting for vendor agreement acceptance before checkout.'}
+                </p>
+              </div>
             )}
           </div>
         )}
