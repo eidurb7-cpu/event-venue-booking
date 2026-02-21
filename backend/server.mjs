@@ -18,6 +18,9 @@ const ADMIN_TOKEN_TTL = process.env.ADMIN_TOKEN_TTL || '12h';
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
 const STRIPE_PLATFORM_COMMISSION_PERCENT = Number(process.env.STRIPE_PLATFORM_COMMISSION_PERCENT || 15);
+const FRONTEND_BASE_URL = process.env.FRONTEND_BASE_URL || ALLOWED_ORIGIN;
+const STRIPE_CONNECT_REFRESH_URL = process.env.STRIPE_CONNECT_REFRESH_URL || `${FRONTEND_BASE_URL}/vendor-portfolio`;
+const STRIPE_CONNECT_RETURN_URL = process.env.STRIPE_CONNECT_RETURN_URL || `${FRONTEND_BASE_URL}/vendor-portfolio`;
 const AUTH_GOOGLE_ID = process.env.AUTH_GOOGLE_ID || '';
 const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID || '';
 const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID || '';
@@ -194,6 +197,171 @@ function normalizeOptionalString(input, maxLength = 255) {
   const value = String(input || '').trim();
   if (!value) return null;
   return value.slice(0, maxLength);
+}
+
+const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
+const URL_OR_SOCIAL_PATTERN = /(https?:\/\/|www\.|\.com|\.de|\.net|\.io|instagram|whatsapp|telegram|t\.me)/i;
+const PHONE_PATTERN = /(\+?\d[\d\s().-]{7,}\d)/;
+const LONG_DIGIT_RUN_PATTERN = /\d{8,}/;
+
+function containsContactInfo(text) {
+  const value = String(text || '');
+  if (!value) return false;
+  return (
+    EMAIL_PATTERN.test(value) ||
+    URL_OR_SOCIAL_PATTERN.test(value) ||
+    PHONE_PATTERN.test(value) ||
+    LONG_DIGIT_RUN_PATTERN.test(value)
+  );
+}
+
+function assertNoContactInfo(text) {
+  if (containsContactInfo(text)) {
+    throw httpError(400, "Please keep communication on the platform. Don't share contact info.");
+  }
+}
+
+function toPositiveInt(value, fieldName) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) throw httpError(400, `${fieldName} must be > 0`);
+  return Math.round(num);
+}
+
+function centsToLegacyPrice(cents) {
+  return Math.max(1, Math.round(Number(cents || 0) / 100));
+}
+
+async function getVendorApplicationByEmail(email) {
+  return prisma.vendorApplication.findFirst({
+    where: { email: { equals: String(email || '').trim(), mode: 'insensitive' } },
+  });
+}
+
+function canActorCounter(lastEventType, actorRole) {
+  if (!lastEventType) return actorRole === 'customer' || actorRole === 'vendor';
+  if (lastEventType === 'request_created') return actorRole === 'vendor' || actorRole === 'customer';
+  if (lastEventType === 'vendor_countered') return actorRole === 'customer';
+  if (lastEventType === 'customer_countered') return actorRole === 'vendor';
+  return false;
+}
+
+async function recomputeBookingNegotiationStatus(tx, bookingId) {
+  // State machine reducer for structured negotiation:
+  // item AGREED locks price; booking ACCEPTED only when required constraints are satisfied.
+  const booking = await tx.booking.findUnique({
+    where: { id: bookingId },
+    include: { items: true, invoice: true },
+  });
+  if (!booking) throw httpError(404, 'Booking not found');
+  const items = booking.items;
+  if (items.length === 0) {
+    return tx.booking.update({
+      where: { id: bookingId },
+      data: { status: 'pending', totalPrice: 0, finalPrice: null },
+      include: { items: true, invoice: true },
+    });
+  }
+
+  if (items.some((i) => i.status === 'declined')) {
+    const updated = await tx.booking.update({
+      where: { id: bookingId },
+      data: { status: 'declined' },
+      include: { items: true, invoice: true },
+    });
+    await releaseBookingAvailability(tx, updated);
+    return updated;
+  }
+
+  const requiredItems = items.filter((i) => i.isRequired);
+  const allRequiredAgreed = requiredItems.length > 0
+    ? requiredItems.every((i) => i.status === 'agreed')
+    : items.every((i) => i.status === 'agreed');
+  const allItemsAgreed = items.every((i) => i.status === 'agreed');
+  const anyAgreed = items.some((i) => i.status === 'agreed');
+  const finalTotalCents = items.reduce((sum, i) => sum + Number(i.finalPriceCents || i.latestPriceCents || 0), 0);
+
+  let nextStatus = booking.status;
+  if (allRequiredAgreed && allItemsAgreed) nextStatus = 'accepted';
+  else if (anyAgreed) nextStatus = 'partially_accepted';
+  else nextStatus = 'pending';
+
+  const updated = await tx.booking.update({
+    where: { id: bookingId },
+    data: {
+      status: nextStatus,
+      totalPrice: centsToLegacyPrice(finalTotalCents),
+      finalPrice: nextStatus === 'accepted' ? centsToLegacyPrice(finalTotalCents) : null,
+    },
+    include: { items: true, invoice: true },
+  });
+
+  if (nextStatus === 'accepted') {
+    await bookBookingAvailability(tx, updated);
+    await tx.invoice.upsert({
+      where: { bookingId },
+      update: {
+        amount: finalTotalCents,
+        status: 'issued',
+        issuedAt: new Date(),
+      },
+      create: {
+        bookingId,
+        amount: finalTotalCents,
+        status: 'issued',
+        issuedAt: new Date(),
+      },
+    });
+  }
+
+  return tx.booking.findUnique({
+    where: { id: bookingId },
+    include: { items: true, invoice: true },
+  });
+}
+
+async function expireNegotiationsIfInactive(tx, bookingId) {
+  const booking = await tx.booking.findUnique({
+    where: { id: bookingId },
+    include: { items: true },
+  });
+  if (!booking) return null;
+  if (!['pending', 'partially_accepted'].includes(booking.status)) return booking;
+
+  const now = Date.now();
+  const expiredItems = booking.items.filter((item) => {
+    // 48h inactivity timeout on requested/countered negotiation states.
+    const base = item.lastNegotiationAt || item.updatedAt || item.createdAt;
+    return ['requested', 'countered', 'pending', 'counter_offered'].includes(item.status)
+      && now - new Date(base).getTime() > 48 * 60 * 60 * 1000;
+  });
+
+  if (expiredItems.length === 0) return booking;
+
+  for (const item of expiredItems) {
+    await tx.bookingItem.update({
+      where: { id: item.id },
+      data: { status: 'expired' },
+    });
+    await tx.offerEvent.create({
+      data: {
+        bookingId: booking.id,
+        bookingItemId: item.id,
+        vendorId: item.vendorId,
+        actorRole: 'system',
+        type: 'expired',
+        offerVersion: item.currentOfferVersion || 1,
+        reason: 'Negotiation expired due to inactivity.',
+      },
+    });
+  }
+
+  const updated = await tx.booking.update({
+    where: { id: booking.id },
+    data: { status: 'expired' },
+    include: { items: true, invoice: true },
+  });
+  await releaseBookingAvailability(tx, updated);
+  return updated;
 }
 
 function httpError(status, message) {
@@ -400,6 +568,8 @@ createServer(async (req, res) => {
         const session = event.data.object;
         const requestId = session.metadata?.requestId;
         const offerId = session.metadata?.offerId;
+        const bookingId = session.metadata?.bookingId;
+        const invoiceId = session.metadata?.invoiceId;
         if (requestId && offerId) {
           await prisma.vendorOffer.updateMany({
             where: { id: offerId, requestId },
@@ -409,6 +579,37 @@ createServer(async (req, res) => {
               stripePaymentIntent: typeof session.payment_intent === 'string' ? session.payment_intent : null,
               paidAt: new Date(),
             },
+          });
+        }
+        if (bookingId) {
+          await prisma.$transaction(async (tx) => {
+            if (invoiceId) {
+              await tx.invoice.updateMany({
+                where: { id: invoiceId, bookingId },
+                data: {
+                  status: 'paid',
+                  paidAt: new Date(),
+                  stripeSessionId: session.id || null,
+                },
+              });
+            } else {
+              await tx.invoice.updateMany({
+                where: { bookingId },
+                data: {
+                  status: 'paid',
+                  paidAt: new Date(),
+                  stripeSessionId: session.id || null,
+                },
+              });
+            }
+            const booking = await tx.booking.update({
+              where: { id: bookingId },
+              data: {
+                status: 'paid',
+                isCompleted: false,
+              },
+            });
+            await bookBookingAvailability(tx, booking);
           });
         }
         return sendJson(res, 200, { received: true, event: event.type });
@@ -512,6 +713,85 @@ createServer(async (req, res) => {
       return sendJson(res, 200, {
         sessionId: session.id,
         url: session.url,
+      });
+    }
+
+    if (req.method === 'POST' && path === '/api/stripe/connect/onboard') {
+      if (!stripe) {
+        return sendJson(res, 400, { error: 'Stripe is not configured' });
+      }
+      const body = await readBody(req);
+      const vendorEmail = normalizeOptionalString(body.vendorEmail, 320);
+      if (!vendorEmail) return sendJson(res, 400, { error: 'vendorEmail is required' });
+
+      const vendor = await getVendorApplicationByEmail(vendorEmail);
+      if (!vendor) return sendJson(res, 404, { error: 'Vendor profile not found' });
+      if (vendor.status !== 'approved') {
+        return sendJson(res, 403, { error: `Vendor account is ${vendor.status}. Admin approval required.` });
+      }
+
+      let accountId = vendor.stripeAccountId;
+      if (!accountId) {
+        const account = await stripe.accounts.create({
+          type: 'express',
+          country: normalizeOptionalString(body.country, 2)?.toUpperCase() || 'DE',
+          email: vendor.email,
+          business_type: body.businessType === 'company' ? 'company' : 'individual',
+          metadata: {
+            vendorApplicationId: vendor.id,
+            vendorEmail: vendor.email,
+            businessName: vendor.businessName,
+          },
+        });
+        accountId = account.id;
+        await prisma.vendorApplication.update({
+          where: { id: vendor.id },
+          data: { stripeAccountId: accountId },
+        });
+      }
+
+      const accountLink = await stripe.accountLinks.create({
+        account: accountId,
+        type: 'account_onboarding',
+        refresh_url: STRIPE_CONNECT_REFRESH_URL,
+        return_url: STRIPE_CONNECT_RETURN_URL,
+      });
+
+      return sendJson(res, 200, {
+        accountId,
+        onboardingUrl: accountLink.url,
+        expiresAt: accountLink.expires_at,
+      });
+    }
+
+    if (req.method === 'GET' && path === '/api/stripe/connect/status') {
+      if (!stripe) {
+        return sendJson(res, 400, { error: 'Stripe is not configured' });
+      }
+      const vendorEmail = normalizeOptionalString(url.searchParams.get('vendorEmail'), 320);
+      if (!vendorEmail) return sendJson(res, 400, { error: 'vendorEmail is required' });
+
+      const vendor = await getVendorApplicationByEmail(vendorEmail);
+      if (!vendor) return sendJson(res, 404, { error: 'Vendor profile not found' });
+      if (!vendor.stripeAccountId) {
+        return sendJson(res, 200, {
+          connected: false,
+          stripeAccountId: null,
+          chargesEnabled: false,
+          payoutsEnabled: false,
+          detailsSubmitted: false,
+          pendingRequirements: [],
+        });
+      }
+
+      const account = await stripe.accounts.retrieve(vendor.stripeAccountId);
+      return sendJson(res, 200, {
+        connected: Boolean(vendor.stripeAccountId),
+        stripeAccountId: vendor.stripeAccountId,
+        chargesEnabled: Boolean(account.charges_enabled),
+        payoutsEnabled: Boolean(account.payouts_enabled),
+        detailsSubmitted: Boolean(account.details_submitted),
+        pendingRequirements: account.requirements?.currently_due || [],
       });
     }
 
@@ -869,20 +1149,41 @@ createServer(async (req, res) => {
             },
           });
 
-          const priceOffered = Number(item.priceOffered || service.basePrice || 0);
-          if (!Number.isFinite(priceOffered) || priceOffered <= 0) {
-            throw httpError(400, `Invalid priceOffered for service ${serviceId}`);
-          }
+          const initialCents = Number(item.priceCents || 0) > 0
+            ? toPositiveInt(item.priceCents, 'priceCents')
+            : toPositiveInt(Number(item.priceOffered || service.basePrice || 0) * 100, 'priceCents');
+          const priceOffered = centsToLegacyPrice(initialCents);
 
           runningTotal += priceOffered;
-          await tx.bookingItem.create({
+          const bookingItem = await tx.bookingItem.create({
             data: {
               bookingId: booking.id,
               vendorId: service.vendorId,
               serviceId: service.id,
               priceOffered,
-              status: 'pending',
+              latestPriceCents: initialCents,
+              finalPriceCents: null,
+              isRequired: Boolean(item.isRequired) || String(service.category || '').toLowerCase() === 'venue',
+              currentOfferVersion: 1,
+              customerAcceptedVersion: null,
+              vendorAcceptedVersion: null,
+              lastNegotiationAt: new Date(),
+              status: 'requested',
               vendorMessage: item.vendorMessage || null,
+            },
+          });
+
+          await tx.offerEvent.create({
+            data: {
+              bookingId: booking.id,
+              bookingItemId: bookingItem.id,
+              vendorId: service.vendorId,
+              actorRole: 'customer',
+              type: 'request_created',
+              offerVersion: 1,
+              priceCents: initialCents,
+              reason: normalizeOptionalString(item.reason || item.vendorMessage, 400),
+              breakdownJson: item.breakdown || null,
             },
           });
 
@@ -909,6 +1210,497 @@ createServer(async (req, res) => {
       });
 
       return sendJson(res, 201, { booking: result });
+    }
+
+    if (req.method === 'POST' && path.match(/^\/api\/bookings\/[^/]+\/items\/[^/]+\/offer$/)) {
+      const [, , , bookingId, , itemId] = path.split('/');
+      const body = await readBody(req);
+      const priceCents = toPositiveInt(body.priceCents, 'priceCents');
+      const reason = normalizeOptionalString(body.reason, 400);
+      if (!reason) return sendJson(res, 400, { error: 'reason is required' });
+      assertNoContactInfo(reason);
+
+      const updated = await prisma.$transaction(async (tx) => {
+        await expireNegotiationsIfInactive(tx, bookingId);
+
+        const booking = await tx.booking.findUnique({
+          where: { id: bookingId },
+          include: { invoice: true },
+        });
+        if (!booking) throw httpError(404, 'Booking not found');
+        if (!['pending', 'partially_accepted'].includes(booking.status)) {
+          throw httpError(400, `Booking is ${booking.status} and cannot be negotiated`);
+        }
+        if (booking.invoice && ['issued', 'paid'].includes(booking.invoice.status)) {
+          throw httpError(409, 'Invoice already issued. Price cannot be changed.');
+        }
+
+        const item = await tx.bookingItem.findFirst({
+          where: { id: itemId, bookingId },
+        });
+        if (!item) throw httpError(404, 'Booking item not found');
+        if (['agreed', 'declined', 'cancelled', 'expired'].includes(item.status)) {
+          throw httpError(400, `Item is ${item.status} and cannot be countered`);
+        }
+
+        const latestEvent = await tx.offerEvent.findFirst({
+          where: { bookingItemId: item.id },
+          orderBy: { createdAt: 'desc' },
+        });
+
+        const customerEmail = normalizeOptionalString(body.customerEmail, 320);
+        const vendorEmail = normalizeOptionalString(body.vendorEmail, 320);
+        if ((customerEmail && vendorEmail) || (!customerEmail && !vendorEmail)) {
+          throw httpError(400, 'Provide exactly one actor email: customerEmail or vendorEmail');
+        }
+
+        let actorRole = 'customer';
+        let actorVendorId = null;
+        if (customerEmail) {
+          const customer = await tx.user.findFirst({
+            where: { email: { equals: customerEmail, mode: 'insensitive' }, role: 'customer' },
+          });
+          if (!customer) throw httpError(404, 'Customer not found');
+          if (customer.id !== booking.customerId) throw httpError(403, 'Not your booking');
+          actorRole = 'customer';
+        } else {
+          const app = await tx.vendorApplication.findFirst({
+            where: { email: { equals: vendorEmail, mode: 'insensitive' } },
+          });
+          if (!app) throw httpError(404, 'Vendor account not found');
+          const { vendorProfile } = await ensureVendorIdentityFromApplication(tx, app);
+          if (vendorProfile.id !== item.vendorId) throw httpError(403, 'Cannot counter another vendor item');
+          actorRole = 'vendor';
+          actorVendorId = vendorProfile.id;
+        }
+
+        if (!canActorCounter(latestEvent?.type || null, actorRole)) {
+          throw httpError(409, 'Counter-offer turn is not allowed for this actor right now');
+        }
+
+        const nextVersion = Number(item.currentOfferVersion || 1) + 1;
+        await tx.offerEvent.create({
+          data: {
+            bookingId,
+            bookingItemId: item.id,
+            vendorId: actorVendorId || item.vendorId,
+            actorRole,
+            type: actorRole === 'vendor' ? 'vendor_countered' : 'customer_countered',
+            offerVersion: nextVersion,
+            priceCents,
+            reason,
+            breakdownJson: body.breakdown || null,
+          },
+        });
+
+        await tx.bookingItem.update({
+          where: { id: item.id },
+          data: {
+            status: 'countered',
+            currentOfferVersion: nextVersion,
+            latestPriceCents: priceCents,
+            customerAcceptedVersion: null,
+            vendorAcceptedVersion: null,
+            lastNegotiationAt: new Date(),
+            priceOffered: centsToLegacyPrice(priceCents),
+            finalPrice: null,
+            finalPriceCents: null,
+          },
+        });
+
+        return recomputeBookingNegotiationStatus(tx, bookingId);
+      });
+
+      return sendJson(res, 200, { booking: updated });
+    }
+
+    if (req.method === 'POST' && path.match(/^\/api\/bookings\/[^/]+\/items\/[^/]+\/accept$/)) {
+      const [, , , bookingId, , itemId] = path.split('/');
+      const body = await readBody(req);
+      const offerVersion = toPositiveInt(body.offerVersion, 'offerVersion');
+
+      const updated = await prisma.$transaction(async (tx) => {
+        await expireNegotiationsIfInactive(tx, bookingId);
+        const booking = await tx.booking.findUnique({
+          where: { id: bookingId },
+          include: { invoice: true },
+        });
+        if (!booking) throw httpError(404, 'Booking not found');
+        if (!['pending', 'partially_accepted'].includes(booking.status)) {
+          throw httpError(400, `Booking is ${booking.status} and cannot be accepted`);
+        }
+        if (booking.invoice && ['issued', 'paid'].includes(booking.invoice.status)) {
+          throw httpError(409, 'Invoice already issued. Price cannot be changed.');
+        }
+
+        const item = await tx.bookingItem.findFirst({
+          where: { id: itemId, bookingId },
+        });
+        if (!item) throw httpError(404, 'Booking item not found');
+        if (offerVersion !== Number(item.currentOfferVersion || 0)) {
+          throw httpError(409, 'Offer updated, please review latest.');
+        }
+
+        const customerEmail = normalizeOptionalString(body.customerEmail, 320);
+        const vendorEmail = normalizeOptionalString(body.vendorEmail, 320);
+        if ((customerEmail && vendorEmail) || (!customerEmail && !vendorEmail)) {
+          throw httpError(400, 'Provide exactly one actor email: customerEmail or vendorEmail');
+        }
+
+        let actorRole = 'customer';
+        let actorVendorId = null;
+        if (customerEmail) {
+          const customer = await tx.user.findFirst({
+            where: { email: { equals: customerEmail, mode: 'insensitive' }, role: 'customer' },
+          });
+          if (!customer) throw httpError(404, 'Customer not found');
+          if (customer.id !== booking.customerId) throw httpError(403, 'Not your booking');
+          if (Number(item.customerAcceptedVersion || 0) === offerVersion) {
+            throw httpError(409, 'Customer already accepted this offer version');
+          }
+          actorRole = 'customer';
+        } else {
+          const app = await tx.vendorApplication.findFirst({
+            where: { email: { equals: vendorEmail, mode: 'insensitive' } },
+          });
+          if (!app) throw httpError(404, 'Vendor account not found');
+          const { vendorProfile } = await ensureVendorIdentityFromApplication(tx, app);
+          if (vendorProfile.id !== item.vendorId) throw httpError(403, 'Cannot accept another vendor item');
+          if (Number(item.vendorAcceptedVersion || 0) === offerVersion) {
+            throw httpError(409, 'Vendor already accepted this offer version');
+          }
+          actorRole = 'vendor';
+          actorVendorId = vendorProfile.id;
+        }
+
+        await tx.offerEvent.create({
+          data: {
+            bookingId,
+            bookingItemId: item.id,
+            vendorId: actorVendorId || item.vendorId,
+            actorRole,
+            type: actorRole === 'vendor' ? 'vendor_accepted' : 'customer_accepted',
+            offerVersion,
+            priceCents: item.latestPriceCents || null,
+          },
+        });
+
+        const nextCustomerAccepted = actorRole === 'customer' ? offerVersion : item.customerAcceptedVersion;
+        const nextVendorAccepted = actorRole === 'vendor' ? offerVersion : item.vendorAcceptedVersion;
+        const bothAcceptedSame = Number(nextCustomerAccepted || 0) === offerVersion
+          && Number(nextVendorAccepted || 0) === offerVersion;
+
+        await tx.bookingItem.update({
+          where: { id: item.id },
+          data: {
+            customerAcceptedVersion: nextCustomerAccepted || null,
+            vendorAcceptedVersion: nextVendorAccepted || null,
+            status: bothAcceptedSame ? 'agreed' : item.status,
+            finalPriceCents: bothAcceptedSame ? Number(item.latestPriceCents || 0) : item.finalPriceCents,
+            finalPrice: bothAcceptedSame ? centsToLegacyPrice(Number(item.latestPriceCents || 0)) : item.finalPrice,
+            lastNegotiationAt: new Date(),
+          },
+        });
+
+        return recomputeBookingNegotiationStatus(tx, bookingId);
+      });
+
+      return sendJson(res, 200, { booking: updated });
+    }
+
+    if (req.method === 'POST' && path.match(/^\/api\/bookings\/[^/]+\/items\/[^/]+\/decline$/)) {
+      const [, , , bookingId, , itemId] = path.split('/');
+      const body = await readBody(req);
+      const reason = normalizeOptionalString(body.reason, 400);
+      if (reason) assertNoContactInfo(reason);
+
+      const updated = await prisma.$transaction(async (tx) => {
+        await expireNegotiationsIfInactive(tx, bookingId);
+        const booking = await tx.booking.findUnique({
+          where: { id: bookingId },
+          include: { invoice: true, items: true },
+        });
+        if (!booking) throw httpError(404, 'Booking not found');
+        if (booking.invoice && ['issued', 'paid'].includes(booking.invoice.status)) {
+          throw httpError(409, 'Invoice already issued. Negotiation cannot be declined now.');
+        }
+        if (!['pending', 'partially_accepted'].includes(booking.status)) {
+          throw httpError(400, `Booking is ${booking.status} and cannot be declined`);
+        }
+
+        const item = booking.items.find((i) => i.id === itemId);
+        if (!item) throw httpError(404, 'Booking item not found');
+        if (['declined', 'cancelled', 'expired'].includes(item.status)) {
+          throw httpError(400, `Item already ${item.status}`);
+        }
+
+        const customerEmail = normalizeOptionalString(body.customerEmail, 320);
+        const vendorEmail = normalizeOptionalString(body.vendorEmail, 320);
+        if ((customerEmail && vendorEmail) || (!customerEmail && !vendorEmail)) {
+          throw httpError(400, 'Provide exactly one actor email: customerEmail or vendorEmail');
+        }
+
+        let actorRole = 'customer';
+        let actorVendorId = null;
+        if (customerEmail) {
+          const customer = await tx.user.findFirst({
+            where: { email: { equals: customerEmail, mode: 'insensitive' }, role: 'customer' },
+          });
+          if (!customer) throw httpError(404, 'Customer not found');
+          if (customer.id !== booking.customerId) throw httpError(403, 'Not your booking');
+          actorRole = 'customer';
+        } else {
+          const app = await tx.vendorApplication.findFirst({
+            where: { email: { equals: vendorEmail, mode: 'insensitive' } },
+          });
+          if (!app) throw httpError(404, 'Vendor account not found');
+          const { vendorProfile } = await ensureVendorIdentityFromApplication(tx, app);
+          if (vendorProfile.id !== item.vendorId) throw httpError(403, 'Cannot decline another vendor item');
+          actorRole = 'vendor';
+          actorVendorId = vendorProfile.id;
+        }
+
+        await tx.offerEvent.create({
+          data: {
+            bookingId,
+            bookingItemId: item.id,
+            vendorId: actorVendorId || item.vendorId,
+            actorRole,
+            type: 'declined',
+            offerVersion: item.currentOfferVersion || 1,
+            reason: reason || null,
+            priceCents: item.latestPriceCents || null,
+          },
+        });
+
+        await tx.bookingItem.update({
+          where: { id: item.id },
+          data: {
+            status: 'declined',
+            lastNegotiationAt: new Date(),
+          },
+        });
+
+        if (item.isRequired) {
+          await tx.bookingItem.updateMany({
+            where: {
+              bookingId,
+              id: { not: item.id },
+              status: { notIn: ['declined', 'cancelled', 'expired'] },
+            },
+            data: { status: 'cancelled', lastNegotiationAt: new Date() },
+          });
+          const cancelledBooking = await tx.booking.update({
+            where: { id: bookingId },
+            data: { status: 'cancelled' },
+            include: { items: true, invoice: true },
+          });
+          await releaseBookingAvailability(tx, cancelledBooking);
+          return cancelledBooking;
+        }
+
+        return recomputeBookingNegotiationStatus(tx, bookingId);
+      });
+
+      return sendJson(res, 200, { booking: updated });
+    }
+
+    if (req.method === 'GET' && path.match(/^\/api\/bookings\/[^/]+\/thread$/)) {
+      const bookingId = path.split('/')[3];
+      const customerEmail = normalizeOptionalString(url.searchParams.get('customerEmail'), 320);
+      const vendorEmail = normalizeOptionalString(url.searchParams.get('vendorEmail'), 320);
+      const actorRole = customerEmail ? 'customer' : vendorEmail ? 'vendor' : null;
+
+      const payload = await prisma.$transaction(async (tx) => {
+        await expireNegotiationsIfInactive(tx, bookingId);
+        const booking = await tx.booking.findUnique({
+          where: { id: bookingId },
+          include: {
+            invoice: true,
+            items: {
+              include: {
+                service: true,
+                vendor: { include: { user: true } },
+                offerEvents: { orderBy: { createdAt: 'asc' } },
+              },
+            },
+          },
+        });
+        if (!booking) throw httpError(404, 'Booking not found');
+
+        let actorVendorId = null;
+        if (actorRole === 'customer') {
+          const customer = await tx.user.findFirst({
+            where: { email: { equals: customerEmail, mode: 'insensitive' }, role: 'customer' },
+          });
+          if (!customer || customer.id !== booking.customerId) throw httpError(403, 'Not allowed for this customer');
+        }
+        if (actorRole === 'vendor') {
+          const app = await tx.vendorApplication.findFirst({
+            where: { email: { equals: vendorEmail, mode: 'insensitive' } },
+          });
+          if (!app) throw httpError(404, 'Vendor account not found');
+          const { vendorProfile } = await ensureVendorIdentityFromApplication(tx, app);
+          actorVendorId = vendorProfile.id;
+        }
+
+        const items = booking.items.map((item) => {
+          const latestOffer = [...item.offerEvents]
+            .reverse()
+            .find((event) => typeof event.priceCents === 'number');
+          const lastEvent = item.offerEvents[item.offerEvents.length - 1];
+          const actorCanRead = !actorRole
+            || actorRole === 'customer'
+            || (actorRole === 'vendor' && actorVendorId === item.vendorId);
+          if (!actorCanRead) return null;
+
+          const isLocked = ['agreed', 'declined', 'expired', 'cancelled'].includes(item.status)
+            || (booking.invoice && ['issued', 'paid'].includes(booking.invoice.status));
+
+          const canCounter = Boolean(
+            actorRole &&
+            !isLocked &&
+            canActorCounter(lastEvent?.type || null, actorRole),
+          );
+          const canCustomerCounter = Boolean(!isLocked && canActorCounter(lastEvent?.type || null, 'customer'));
+          const canVendorCounter = Boolean(!isLocked && canActorCounter(lastEvent?.type || null, 'vendor'));
+          const canAccept = Boolean(
+            actorRole &&
+            !isLocked &&
+            Number(item.currentOfferVersion || 0) > 0 &&
+            !(
+              (actorRole === 'customer' && Number(item.customerAcceptedVersion || 0) === Number(item.currentOfferVersion || 0)) ||
+              (actorRole === 'vendor' && Number(item.vendorAcceptedVersion || 0) === Number(item.currentOfferVersion || 0))
+            ),
+          );
+
+          return {
+            id: item.id,
+            serviceId: item.serviceId,
+            serviceTitle: item.service.title,
+            vendorId: item.vendorId,
+            vendorName: item.vendor.user.name,
+            status: item.status,
+            isRequired: item.isRequired,
+            currentOfferVersion: item.currentOfferVersion,
+            latestOffer: latestOffer
+              ? {
+                  version: latestOffer.offerVersion,
+                  priceCents: latestOffer.priceCents,
+                  reason: latestOffer.reason || null,
+                  breakdownJson: latestOffer.breakdownJson || null,
+                }
+              : null,
+            finalPriceCents: item.finalPriceCents,
+            events: item.offerEvents,
+            actions: {
+              canCounter,
+              canCustomerCounter,
+              canVendorCounter,
+              canAccept,
+              canDecline: !isLocked && Boolean(actorRole),
+            },
+          };
+        }).filter(Boolean);
+
+        return {
+          booking: {
+            id: booking.id,
+            status: booking.status,
+            eventDate: booking.eventDate,
+            totalPrice: booking.totalPrice,
+            finalPrice: booking.finalPrice,
+            invoice: booking.invoice,
+          },
+          items,
+        };
+      });
+
+      return sendJson(res, 200, payload);
+    }
+
+    if (req.method === 'POST' && path.match(/^\/api\/bookings\/[^/]+\/checkout$/)) {
+      if (!stripe) return sendJson(res, 400, { error: 'Stripe is not configured' });
+      const bookingId = path.split('/')[3];
+      const body = await readBody(req);
+      const customerEmail = normalizeOptionalString(body.customerEmail, 320);
+      const successUrl = normalizeOptionalString(body.successUrl, 1000);
+      const cancelUrl = normalizeOptionalString(body.cancelUrl, 1000);
+      if (!customerEmail || !successUrl || !cancelUrl) {
+        return sendJson(res, 400, { error: 'customerEmail, successUrl and cancelUrl are required' });
+      }
+
+      const result = await prisma.$transaction(async (tx) => {
+        const booking = await tx.booking.findUnique({
+          where: { id: bookingId },
+          include: { items: true, invoice: true, customer: true },
+        });
+        if (!booking) throw httpError(404, 'Booking not found');
+        if (booking.customer.email.toLowerCase() !== customerEmail.toLowerCase()) {
+          throw httpError(403, 'Not allowed for this booking');
+        }
+        if (booking.status !== 'accepted') throw httpError(400, 'Booking must be ACCEPTED before checkout');
+        if (!booking.items.every((item) => item.status === 'agreed')) {
+          throw httpError(400, 'All booking items must be AGREED before checkout');
+        }
+
+        const finalTotalCents = booking.items.reduce(
+          (sum, item) => sum + Number(item.finalPriceCents || item.latestPriceCents || 0),
+          0,
+        );
+        if (finalTotalCents <= 0) throw httpError(400, 'Final total must be greater than zero');
+
+        const invoice = await tx.invoice.upsert({
+          where: { bookingId },
+          update: {
+            amount: finalTotalCents,
+            status: 'issued',
+            issuedAt: new Date(),
+          },
+          create: {
+            bookingId,
+            amount: finalTotalCents,
+            status: 'issued',
+            issuedAt: new Date(),
+          },
+        });
+
+        if (invoice.status === 'paid') throw httpError(409, 'Invoice already paid');
+
+        const session = await stripe.checkout.sessions.create({
+          mode: 'payment',
+          customer_email: customerEmail,
+          success_url: successUrl,
+          cancel_url: cancelUrl,
+          line_items: [
+            {
+              quantity: 1,
+              price_data: {
+                currency: 'eur',
+                unit_amount: finalTotalCents,
+                product_data: {
+                  name: `Booking ${booking.id}`,
+                  description: 'Final agreed booking amount',
+                },
+              },
+            },
+          ],
+          metadata: {
+            bookingId: booking.id,
+            invoiceId: invoice.id,
+            customerEmail,
+          },
+        });
+
+        await tx.invoice.update({
+          where: { id: invoice.id },
+          data: { stripeSessionId: session.id },
+        });
+
+        return { sessionId: session.id, url: session.url, invoiceId: invoice.id };
+      });
+
+      return sendJson(res, 200, result);
     }
 
     if (req.method === 'POST' && path.match(/^\/api\/marketplace\/bookings\/[^/]+\/vendor-decision$/)) {
@@ -1053,6 +1845,13 @@ createServer(async (req, res) => {
           await tx.booking.update({
             where: { id: booking.id },
             data: { status: 'expired' },
+          });
+          await tx.bookingItem.updateMany({
+            where: {
+              bookingId: booking.id,
+              status: { in: ['requested', 'countered', 'pending', 'counter_offered'] },
+            },
+            data: { status: 'expired', lastNegotiationAt: new Date() },
           });
           await releaseBookingAvailability(tx, booking);
         }

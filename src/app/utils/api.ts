@@ -84,6 +84,15 @@ export interface VendorPost {
   updatedAt: string;
 }
 
+export interface StripeConnectStatus {
+  connected: boolean;
+  stripeAccountId: string | null;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+  pendingRequirements: string[];
+}
+
 export interface MarketplaceBookingItem {
   id: string;
   bookingId: string;
@@ -95,6 +104,71 @@ export interface MarketplaceBookingItem {
   vendorMessage?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface OfferEvent {
+  id: string;
+  bookingId: string;
+  bookingItemId: string;
+  actorRole: 'customer' | 'vendor' | 'system' | 'admin';
+  type:
+    | 'request_created'
+    | 'vendor_countered'
+    | 'customer_countered'
+    | 'vendor_accepted'
+    | 'customer_accepted'
+    | 'declined'
+    | 'expired';
+  offerVersion: number;
+  priceCents?: number | null;
+  reason?: string | null;
+  breakdownJson?: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface BookingThreadItem {
+  id: string;
+  serviceId: string;
+  serviceTitle: string;
+  vendorId: string;
+  vendorName: string;
+  status: string;
+  isRequired: boolean;
+  currentOfferVersion: number;
+  latestOffer: {
+    version: number;
+    priceCents: number | null;
+    reason?: string | null;
+    breakdownJson?: Record<string, unknown> | null;
+  } | null;
+  finalPriceCents?: number | null;
+  events: OfferEvent[];
+  actions: {
+    canCounter: boolean;
+    canCustomerCounter?: boolean;
+    canVendorCounter?: boolean;
+    canAccept: boolean;
+    canDecline: boolean;
+  };
+}
+
+export interface BookingThread {
+  booking: {
+    id: string;
+    status: string;
+    eventDate: string;
+    totalPrice: number;
+    finalPrice?: number | null;
+    invoice?: {
+      id: string;
+      bookingId: string;
+      amount: number;
+      status: 'draft' | 'issued' | 'paid' | 'failed' | 'refunded' | 'void';
+      issuedAt?: string | null;
+      paidAt?: string | null;
+    } | null;
+  };
+  items: BookingThreadItem[];
 }
 
 export interface MarketplaceBooking {
@@ -405,6 +479,21 @@ export function createStripeCheckoutSession(payload: {
   }) as Promise<{ sessionId: string; url: string | null }>;
 }
 
+export function createStripeConnectOnboarding(payload: {
+  vendorEmail: string;
+  country?: string;
+  businessType?: 'individual' | 'company';
+}) {
+  return request('/api/stripe/connect/onboard', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }) as Promise<{ accountId: string; onboardingUrl: string; expiresAt: number }>;
+}
+
+export function getStripeConnectStatus(vendorEmail: string) {
+  return request(`/api/stripe/connect/status?vendorEmail=${encodeURIComponent(vendorEmail)}`) as Promise<StripeConnectStatus>;
+}
+
 export function getVendorDocumentUploadUrl(payload: { filename: string; contentType?: string }) {
   return request('/api/uploads/vendor-document-url', {
     method: 'POST',
@@ -429,6 +518,71 @@ export function createMarketplaceBookingRequest(payload: {
     method: 'POST',
     body: JSON.stringify(payload),
   }) as Promise<{ booking: MarketplaceBooking }>;
+}
+
+export function createBookingItemCounterOffer(
+  bookingId: string,
+  itemId: string,
+  payload: {
+    priceCents: number;
+    reason: string;
+    breakdown?: {
+      travelFeeCents?: number;
+      extraHours?: number;
+      equipmentFeeCents?: number;
+      notes?: string;
+    };
+    customerEmail?: string;
+    vendorEmail?: string;
+  },
+) {
+  return request(`/api/bookings/${bookingId}/items/${itemId}/offer`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }) as Promise<{ booking: MarketplaceBooking }>;
+}
+
+export function acceptBookingItemOffer(
+  bookingId: string,
+  itemId: string,
+  payload: { offerVersion: number; customerEmail?: string; vendorEmail?: string },
+) {
+  return request(`/api/bookings/${bookingId}/items/${itemId}/accept`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }) as Promise<{ booking: MarketplaceBooking }>;
+}
+
+export function declineBookingItemOffer(
+  bookingId: string,
+  itemId: string,
+  payload: { reason?: string; customerEmail?: string; vendorEmail?: string },
+) {
+  return request(`/api/bookings/${bookingId}/items/${itemId}/decline`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }) as Promise<{ booking: MarketplaceBooking }>;
+}
+
+export function getBookingThread(
+  bookingId: string,
+  options?: { customerEmail?: string; vendorEmail?: string },
+) {
+  const params = new URLSearchParams();
+  if (options?.customerEmail) params.set('customerEmail', options.customerEmail);
+  if (options?.vendorEmail) params.set('vendorEmail', options.vendorEmail);
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return request(`/api/bookings/${bookingId}/thread${query}`) as Promise<BookingThread>;
+}
+
+export function createBookingCheckout(
+  bookingId: string,
+  payload: { customerEmail: string; successUrl: string; cancelUrl: string },
+) {
+  return request(`/api/bookings/${bookingId}/checkout`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }) as Promise<{ sessionId: string; url: string | null; invoiceId: string }>;
 }
 
 export function vendorDecideMarketplaceBooking(

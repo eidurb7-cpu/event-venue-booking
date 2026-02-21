@@ -14,6 +14,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import Invoices from './pages/Invoices';
 import InvoiceDetail from './pages/InvoiceDetail';
 import CookieSettings from './pages/CookieSettings';
+import BookingThreadPage from './pages/BookingThread';
 import NotFound from './pages/NotFound';
 import RouteError from './pages/RouteError';
 
@@ -35,6 +36,7 @@ export const router = createBrowserRouter([
       { path: 'invoices', Component: Invoices },
       { path: 'invoice/:invoiceId', Component: InvoiceDetail },
       { path: 'cookies', Component: CookieSettings },
+      { path: 'booking-thread/:bookingId', Component: BookingThreadPage },
       { path: 'venue/:id', Component: VenueDetail },
       { path: 'booking', Component: Booking },
       { path: '*', Component: NotFound },

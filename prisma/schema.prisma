@@ -67,15 +67,37 @@ enum BookingStatus {
   declined
   expired
   cancelled
+  paid
   completed
 }
 
 enum BookingItemStatus {
+  requested
+  countered
+  agreed
   pending
   accepted
   declined
   counter_offered
+  expired
   cancelled
+}
+
+enum OfferActorRole {
+  customer
+  vendor
+  system
+  admin
+}
+
+enum OfferEventType {
+  request_created
+  vendor_countered
+  customer_countered
+  vendor_accepted
+  customer_accepted
+  declined
+  expired
 }
 
 enum InvoiceStatus {
@@ -256,6 +278,7 @@ model VendorProfile {
   reviews             Review[]
   analyticsEvents     AnalyticsEvent[]
   dailyStats          VendorDailyStat[]
+  offerEvents         OfferEvent[]
 }
 
 model MarketplaceService {
@@ -314,6 +337,7 @@ model Booking {
   invoice         Invoice?
   reviews         Review[]
   analyticsEvents AnalyticsEvent[]
+  offerEvents     OfferEvent[]
 
   @@index([customerId])
   @@index([status])
@@ -330,15 +354,45 @@ model BookingItem {
   service         MarketplaceService @relation(fields: [serviceId], references: [id], onDelete: Restrict)
   priceOffered    Int
   finalPrice      Int?
+  latestPriceCents Int?
+  finalPriceCents Int?
+  isRequired      Boolean           @default(false)
+  currentOfferVersion Int          @default(1)
+  customerAcceptedVersion Int?
+  vendorAcceptedVersion Int?
+  lastNegotiationAt DateTime       @default(now())
   status          BookingItemStatus @default(pending)
   vendorMessage   String?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
+  offerEvents     OfferEvent[]
 
   @@index([bookingId])
   @@index([vendorId])
   @@index([serviceId])
   @@index([status])
+}
+
+model OfferEvent {
+  id           String        @id @default(cuid())
+  bookingId    String
+  booking      Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  bookingItemId String
+  bookingItem  BookingItem   @relation(fields: [bookingItemId], references: [id], onDelete: Cascade)
+  vendorId     String?
+  vendor       VendorProfile? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  actorRole    OfferActorRole
+  type         OfferEventType
+  offerVersion Int
+  priceCents   Int?
+  reason       String?
+  breakdownJson Json?
+  createdAt    DateTime      @default(now())
+
+  @@index([bookingId])
+  @@index([vendorId])
+  @@index([bookingItemId, createdAt])
+  @@unique([bookingItemId, offerVersion, type])
 }
 
 model Invoice {

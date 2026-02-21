@@ -2,11 +2,14 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import {
   ServiceRequest,
+  StripeConnectStatus,
   VendorApplication,
   VendorOfferWithRequest,
   VendorPost,
   applyVendorOffer,
+  createStripeConnectOnboarding,
   createVendorPost,
+  getStripeConnectStatus,
   getOpenRequests,
   getVendorOffers,
   getVendorPosts,
@@ -27,6 +30,8 @@ export default function VendorPortfolio() {
   const [posts, setPosts] = useState<VendorPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [offersLoading, setOffersLoading] = useState(false);
+  const [stripeLoading, setStripeLoading] = useState(false);
+  const [stripeStatus, setStripeStatus] = useState<StripeConnectStatus | null>(null);
   const [error, setError] = useState('');
   const [priceByRequest, setPriceByRequest] = useState<Record<string, string>>({});
   const [messageByRequest, setMessageByRequest] = useState<Record<string, string>>({});
@@ -76,6 +81,7 @@ export default function VendorPortfolio() {
     const vendor = await loadVendorProfile(email.trim());
     if (vendor) {
       await loadMyOffers(email.trim());
+      await loadStripeStatus(email.trim());
       if (vendor.status === 'approved') {
         await Promise.all([loadOpenRequests(), loadPosts(email.trim())]);
       }
@@ -126,6 +132,19 @@ export default function VendorPortfolio() {
     }
   };
 
+  const loadStripeStatus = async (email: string) => {
+    if (!email.trim()) {
+      setStripeStatus(null);
+      return;
+    }
+    try {
+      const data = await getStripeConnectStatus(email.trim());
+      setStripeStatus(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Fehler beim Laden des Stripe-Status.');
+    }
+  };
+
   useEffect(() => {
     const current = getCurrentUser();
     if (!current || current.role !== 'vendor' || !current.user.email) {
@@ -171,6 +190,22 @@ export default function VendorPortfolio() {
       setInquiryMessage('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Fehler beim Senden der Anfrage an Admin.');
+    }
+  };
+
+  const startStripeOnboarding = async () => {
+    if (!vendorEmail.trim()) return;
+    setStripeLoading(true);
+    setError('');
+    try {
+      const data = await createStripeConnectOnboarding({
+        vendorEmail: vendorEmail.trim(),
+        country: 'DE',
+      });
+      window.location.href = data.onboardingUrl;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Fehler beim Starten von Stripe Connect.');
+      setStripeLoading(false);
     }
   };
 
@@ -335,12 +370,41 @@ export default function VendorPortfolio() {
               {vendorProfile.websiteUrl && <p><strong>Website:</strong> {vendorProfile.websiteUrl}</p>}
               {vendorProfile.portfolioUrl && <p><strong>Portfolio URL:</strong> {vendorProfile.portfolioUrl}</p>}
               <p><strong>Stripe Connect:</strong> {vendorProfile.stripeAccountId || 'Nicht verbunden'}</p>
+              {stripeStatus && (
+                <>
+                  <p><strong>Stripe charges_enabled:</strong> {stripeStatus.chargesEnabled ? 'Ja' : 'Nein'}</p>
+                  <p><strong>Stripe payouts_enabled:</strong> {stripeStatus.payoutsEnabled ? 'Ja' : 'Nein'}</p>
+                  <p><strong>Stripe details_submitted:</strong> {stripeStatus.detailsSubmitted ? 'Ja' : 'Nein'}</p>
+                </>
+              )}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={startStripeOnboarding}
+                disabled={stripeLoading}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700 disabled:opacity-60"
+              >
+                {stripeLoading ? 'Stripe Link wird erstellt...' : vendorProfile.stripeAccountId ? 'Stripe Connect fortsetzen' : 'Stripe Connect starten'}
+              </button>
+              <button
+                type="button"
+                onClick={() => loadStripeStatus(vendorEmail)}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50"
+              >
+                Stripe Status aktualisieren
+              </button>
             </div>
             {!vendorProfile.stripeAccountId && (
               <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
                 Keine Stripe Connect ID hinterlegt. Zahlungen gehen an die Plattform, Vendor-Auszahlung braucht `acct_...`.
               </div>
             )}
+            {stripeStatus?.pendingRequirements?.length ? (
+              <div className="mt-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-800">
+                Fehlende Stripe Angaben: {stripeStatus.pendingRequirements.join(', ')}
+              </div>
+            ) : null}
           </div>
         )}
 
