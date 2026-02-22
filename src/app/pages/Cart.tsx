@@ -240,8 +240,9 @@ export default function Cart() {
           cancelUrl: `${FRONTEND_BASE_URL}/cart`,
         }),
       });
-    } catch {
-      setUiError('Network error while starting checkout. Please check API/Stripe config.');
+    } catch (err) {
+      const detail = err instanceof Error ? ` ${err.message}` : '';
+      setUiError(`Network error while starting checkout (${API_BASE}).${detail}`);
       setPayNowLoading(false);
       return;
     }

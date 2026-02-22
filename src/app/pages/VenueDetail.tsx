@@ -256,6 +256,9 @@ export default function VenueDetail() {
         return;
       }
       window.location.href = data.url;
+    } catch (err) {
+      const detail = err instanceof Error ? ` ${err.message}` : '';
+      alert(`Network error while starting checkout (${API_BASE}).${detail}`);
     } finally {
       setPayNowLoading(false);
     }
