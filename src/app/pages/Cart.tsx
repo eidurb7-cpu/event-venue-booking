@@ -1,9 +1,9 @@
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { ArrowRight, ShoppingCart, Trash2 } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { getCurrentUser } from '../utils/auth';
 import { ServiceRequest, createRequest, getCustomerRequests } from '../utils/api';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 const FRONTEND_BASE_URL = import.meta.env.VITE_FRONTEND_BASE_URL || window.location.origin;
@@ -37,7 +37,8 @@ export default function Cart() {
   const [sentServiceRequests, setSentServiceRequests] = useState<SentServiceRequest[]>([]);
   const [customerRequests, setCustomerRequests] = useState<ServiceRequest[]>([]);
   const [requestsLoading, setRequestsLoading] = useState(false);
-  const currentUser = getCurrentUser();
+  const currentUser = useMemo(() => getCurrentUser(), []);
+  const customerEmail = currentUser?.role === 'customer' ? (currentUser.user.email || '').trim() : '';
   const isBookingBlockedForRole = currentUser?.role === 'vendor' || currentUser?.role === 'admin';
   const servicesTotal = cart.services.reduce((sum, service) => sum + service.price, 0);
   const venueTotal = cart.venue?.price ?? 0;
@@ -74,17 +75,16 @@ export default function Cart() {
   }, [sentServiceRequests]);
 
   useEffect(() => {
-    if (currentUser?.role === 'customer') {
-      setBookingForm((prev) => ({
-        ...prev,
-        name: prev.name || currentUser.user.name || '',
-        email: prev.email || currentUser.user.email || '',
-      }));
-      if (currentUser.user.email) {
-        void loadCustomerRequests(currentUser.user.email);
-      }
+    if (!currentUser || currentUser.role !== 'customer') return;
+    setBookingForm((prev) => ({
+      ...prev,
+      name: prev.name || currentUser.user.name || '',
+      email: prev.email || currentUser.user.email || '',
+    }));
+    if (customerEmail) {
+      void loadCustomerRequests(customerEmail);
     }
-  }, [currentUser]);
+  }, [customerEmail, currentUser]);
 
   async function loadCustomerRequests(email: string) {
     if (!email.trim()) return;
