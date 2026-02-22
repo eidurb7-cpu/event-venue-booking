@@ -39,7 +39,6 @@ export default function Cart() {
     altPhone: '',
     preferredContactMethod: 'email',
     eventTime: '',
-    arrivalTime: '',
     eventType: '',
     guestCount: '',
     disputeNotes: '',
@@ -57,6 +56,15 @@ export default function Cart() {
   const isBookingBlockedForRole = currentUser?.role === 'vendor' || currentUser?.role === 'admin';
   const servicesTotal = cart.services.reduce((sum, service) => sum + service.price, 0);
   const venueTotal = cart.venue?.price ?? 0;
+  const isCheckoutReady =
+    Boolean(bookingForm.name.trim())
+    && Boolean(bookingForm.email.trim())
+    && Boolean(bookingForm.address.trim())
+    && Boolean(bookingForm.city.trim())
+    && Boolean(bookingForm.postalCode.trim())
+    && Boolean(bookingForm.eventType.trim())
+    && Number(bookingForm.guestCount) > 0
+    && Boolean(bookingForm.termsAccepted);
 
   useEffect(() => {
     try {
@@ -633,13 +641,6 @@ export default function Cart() {
                 onChange={(e) => setBookingForm((p) => ({ ...p, eventTime: e.target.value }))}
                 className="rounded-lg border border-gray-300 px-3 py-2.5"
               />
-              <input
-                type="time"
-                placeholder="Arrival time (optional)"
-                value={bookingForm.arrivalTime}
-                onChange={(e) => setBookingForm((p) => ({ ...p, arrivalTime: e.target.value }))}
-                className="rounded-lg border border-gray-300 px-3 py-2.5"
-              />
               <select
                 required
                 value={bookingForm.eventType}
@@ -735,11 +736,16 @@ export default function Cart() {
               </p>
                 <button
                   type="submit"
-                  disabled={!cart.venue || isBookingBlockedForRole || payNowLoading}
+                  disabled={!cart.venue || isBookingBlockedForRole || payNowLoading || !isCheckoutReady}
                   className="inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 >
                   {payNowLoading ? 'Starting checkout...' : 'Pay now'}
                 </button>
+                {!isCheckoutReady && (
+                  <p className="text-xs text-amber-700">
+                    Fill required fields only: name, email, address, city, postal code, event type, guest count, and terms.
+                  </p>
+                )}
               </form>
             )}
         </div>
