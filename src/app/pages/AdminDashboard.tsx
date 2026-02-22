@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { Bar, BarChart, CartesianGrid, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Cell, LineChart, Line } from 'recharts';
 import { toast } from 'sonner';
 import {
@@ -35,33 +36,70 @@ type Overview = {
   totalOffers: number;
 };
 
+type AdminSection = 'overview' | 'applications' | 'requests' | 'compliance' | 'inquiries';
+
+const ADMIN_SECTIONS: AdminSection[] = ['overview', 'applications', 'requests', 'compliance', 'inquiries'];
+
 export default function AdminDashboard() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const params = useParams();
   const { language } = useLanguage();
   const isDe = language === 'de';
+  const sectionParam = String(params.section || '').toLowerCase();
+  const activeSection: AdminSection = ADMIN_SECTIONS.includes(sectionParam as AdminSection)
+    ? (sectionParam as AdminSection)
+    : 'overview';
+  const adminBasePath = location.pathname.startsWith('/dashboard/admin') ? '/dashboard/admin' : '/admin';
   const tx = {
-    title: isDe ? 'Admin Dashboard' : 'Admin Dashboard',
+    title: isDe ? 'Admin-Dashboard' : 'Admin Dashboard',
     loginPrompt: isDe ? 'Bitte als Admin einloggen, um Backend-Daten zu verwalten.' : 'Please sign in as admin to manage backend data.',
     loginEmail: isDe ? 'Admin E-Mail' : 'Admin email',
     loginPassword: isDe ? 'Admin Passwort' : 'Admin password',
     wait: isDe ? 'Bitte warten...' : 'Please wait...',
     login: isDe ? 'Admin Login' : 'Admin login',
     refresh: isDe ? 'Aktualisieren' : 'Refresh',
-    seedServices: isDe ? 'Services seeden' : 'Seed services',
-    seedVendors: isDe ? 'Demo Vendors seeden' : 'Seed demo vendors',
-    openApplications: isDe ? 'Bewerbungen oeffnen' : 'Open applications',
-    openProposals: isDe ? 'Proposals oeffnen' : 'Open proposals',
+    seedServices: isDe ? 'Services laden' : 'Seed services',
+    seedVendors: isDe ? 'Demo-Anbieter laden' : 'Seed demo vendors',
     logout: isDe ? 'Logout' : 'Logout',
-    analytics: isDe ? 'Algorithmische Analysen' : 'Algorithmic Analytics',
-    applications: isDe ? 'Vendor-Bewerbungen' : 'Vendor Applications',
-    requests: isDe ? 'Requests und Offers' : 'Requests and Offers',
-    inquiries: isDe ? 'Vendor Inquiries an Admin' : 'Vendor inquiries to admin',
+    backendSummary: isDe ? 'Backend-Übersicht, Anbieter-Freigaben und Angebotsmanagement.' : 'Backend overview, vendor approvals, and offer management.',
+    signedInAs: isDe ? 'Eingeloggt als' : 'Signed in as',
+    tabs: {
+      overview: isDe ? 'Übersicht' : 'Overview',
+      applications: isDe ? 'Bewerbungen' : 'Applications',
+      requests: isDe ? 'Anfragen & Angebote' : 'Requests & Offers',
+      compliance: isDe ? 'Compliance' : 'Compliance',
+      inquiries: isDe ? 'Nachrichten' : 'Inquiries',
+    },
+    analytics: isDe ? 'Analytics' : 'Analytics',
+    applications: isDe ? 'Anbieter-Bewerbungen' : 'Vendor Applications',
+    requests: isDe ? 'Anfragen und Angebote' : 'Requests and Offers',
+    inquiries: isDe ? 'Anbieter-Nachrichten an Admin' : 'Vendor inquiries to admin',
     approve: isDe ? 'Freigeben' : 'Approve',
     reject: isDe ? 'Ablehnen' : 'Reject',
-    backToPending: isDe ? 'Zurueck auf Pending' : 'Back to pending',
+    backToPending: isDe ? 'Zurück auf ausstehend' : 'Back to pending',
     viewDetails: isDe ? 'Details ansehen' : 'View details',
     activeApplications: isDe ? 'Aktive Bewerbungen' : 'Active applications',
-    historyApplications: isDe ? 'Verlauf (approved)' : 'History (approved)',
+    historyApplications: isDe ? 'Verlauf (freigegeben)' : 'History (approved)',
     reviewNote: isDe ? 'Review-Notiz (optional)' : 'Review note (optional)',
+    loadingData: isDe ? 'Daten werden geladen...' : 'Loading data...',
+    noApplications: isDe ? 'Keine Anbieter-Bewerbungen gefunden.' : 'No vendor applications found.',
+    noRequests: isDe ? 'Keine Anfragen gefunden.' : 'No requests found.',
+    noOffers: isDe ? 'Keine Angebote' : 'No offers',
+    noInquiries: isDe ? 'Keine Anbieter-Nachrichten vorhanden.' : 'No vendor inquiries found.',
+    noDataInTab: isDe ? 'Keine Daten für diesen Bereich.' : 'No data for this section.',
+    open: isDe ? 'Öffnen' : 'Open',
+    close: isDe ? 'Schließen' : 'Close',
+    contact: isDe ? 'Kontakt' : 'Contact',
+    city: isDe ? 'Stadt' : 'City',
+    customer: isDe ? 'Kunde' : 'Customer',
+    deadline: isDe ? 'Frist bis' : 'Deadline',
+    accept: isDe ? 'Akzeptieren' : 'Accept',
+    ignore: isDe ? 'Ignorieren' : 'Ignore',
+    documentOpen: isDe ? 'Datei öffnen' : 'Open file',
+    reviewedAt: isDe ? 'Geprüft' : 'Reviewed',
+    businessIntro: isDe ? 'Unternehmensvorstellung' : 'Business intro',
+    from: isDe ? 'Von' : 'From',
   };
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
@@ -130,6 +168,13 @@ export default function AdminDashboard() {
     dayMap[day].applications += 1;
   }
   const activityTrendData = Object.values(dayMap).sort((a, b) => a.day.localeCompare(b.day)).slice(-14);
+
+  useEffect(() => {
+    if (!params.section) return;
+    if (!ADMIN_SECTIONS.includes(sectionParam as AdminSection)) {
+      navigate(`${adminBasePath}/overview`, { replace: true });
+    }
+  }, [adminBasePath, navigate, params.section, sectionParam]);
 
   useEffect(() => {
     const savedToken = getAdminToken();
@@ -278,11 +323,6 @@ export default function AdminDashboard() {
     }
   };
 
-  const jumpTo = (id: string) => {
-    const el = document.getElementById(id);
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-
   const runComplianceBackfill = async () => {
     setBackfillingCompliance(true);
     setError('');
@@ -389,7 +429,9 @@ export default function AdminDashboard() {
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">{tx.title}</h1>
-              <p className="text-gray-600 mt-1">{isDe ? 'Backend Uebersicht, Vendor-Freigaben und Offer-Management.' : 'Backend overview, vendor approvals, and offer management.'} {adminName ? `${isDe ? 'Eingeloggt als' : 'Signed in as'} ${adminName}` : ''}</p>
+              <p className="text-gray-600 mt-1">
+                {tx.backendSummary} {adminName ? `${tx.signedInAs} ${adminName}` : ''}
+              </p>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -415,27 +457,6 @@ export default function AdminDashboard() {
               </button>
               <button
                 type="button"
-                onClick={() => jumpTo('admin-applications')}
-                className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm hover:bg-gray-50"
-              >
-                {tx.openApplications}
-              </button>
-              <button
-                type="button"
-                onClick={() => jumpTo('admin-requests')}
-                className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm hover:bg-gray-50"
-              >
-                {tx.openProposals}
-              </button>
-              <button
-                type="button"
-                onClick={() => jumpTo('admin-compliance')}
-                className="rounded-lg border border-indigo-300 text-indigo-700 px-4 py-2.5 text-sm hover:bg-indigo-50"
-              >
-                Compliance
-              </button>
-              <button
-                type="button"
                 onClick={logout}
                 className="rounded-lg bg-gray-900 text-white px-4 py-2.5 text-sm hover:bg-black"
               >
@@ -448,19 +469,38 @@ export default function AdminDashboard() {
               {error}
             </div>
           )}
+          <div className="mt-5 flex flex-wrap gap-2">
+            {ADMIN_SECTIONS.map((section) => {
+              const isActive = activeSection === section;
+              return (
+                <Link
+                  key={section}
+                  to={`${adminBasePath}/${section}`}
+                  className={`rounded-lg border px-3 py-2 text-sm transition-colors ${
+                    isActive
+                      ? 'border-purple-300 bg-purple-50 text-purple-700'
+                      : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  {tx.tabs[section]}
+                </Link>
+              );
+            })}
+          </div>
         </div>
 
-        {overview && (
+        {activeSection === 'overview' && overview && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <StatCard title="Kunden" value={overview.customers} />
-            <StatCard title="Vendor-Anfragen" value={overview.vendorApplications} />
-            <StatCard title="Offene Requests" value={overview.openRequests} />
-            <StatCard title="Geschlossene Requests" value={overview.closedRequests} />
-            <StatCard title="Abgelaufene Requests" value={overview.expiredRequests} />
-            <StatCard title="Gesamte Offers" value={overview.totalOffers} />
+            <StatCard title={isDe ? 'Kunden' : 'Customers'} value={overview.customers} />
+            <StatCard title={isDe ? 'Anbieter-Bewerbungen' : 'Vendor applications'} value={overview.vendorApplications} />
+            <StatCard title={isDe ? 'Offene Anfragen' : 'Open requests'} value={overview.openRequests} />
+            <StatCard title={isDe ? 'Geschlossene Anfragen' : 'Closed requests'} value={overview.closedRequests} />
+            <StatCard title={isDe ? 'Abgelaufene Anfragen' : 'Expired requests'} value={overview.expiredRequests} />
+            <StatCard title={isDe ? 'Gesamte Angebote' : 'Total offers'} value={overview.totalOffers} />
           </div>
         )}
 
+        {activeSection === 'overview' && (
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">{tx.analytics}</h2>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
@@ -527,11 +567,13 @@ export default function AdminDashboard() {
             </ResponsiveContainer>
           </div>
         </div>
+        )}
 
+        {activeSection === 'applications' && (
         <div id="admin-applications" className="bg-white rounded-xl border border-gray-200 p-6">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">{tx.applications}</h2>
-          {loading && <p className="text-gray-600">Lade Daten...</p>}
-          {!loading && applications.length === 0 && <p className="text-gray-600">Keine Vendor-Bewerbungen gefunden.</p>}
+          {loading && <p className="text-gray-600">{tx.loadingData}</p>}
+          {!loading && applications.length === 0 && <p className="text-gray-600">{tx.noApplications}</p>}
           {!loading && (
             <p className="mb-3 text-sm text-gray-700">
               {tx.activeApplications}: <strong>{activeApplications.length}</strong> | {tx.historyApplications}: <strong>{approvedHistory.length}</strong>
@@ -548,7 +590,7 @@ export default function AdminDashboard() {
                       onClick={() => toggleApplication(app.id)}
                       className="rounded-lg border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50"
                     >
-                      {openApplicationIds[app.id] ? 'Schliessen' : 'Oeffnen'}
+                      {openApplicationIds[app.id] ? tx.close : tx.open}
                     </button>
                     <button
                       type="button"
@@ -586,7 +628,7 @@ export default function AdminDashboard() {
                     {app.businessIntro && <p>Intro: {app.businessIntro}</p>}
                     {app.documentUrl && (
                       <p>
-                        Dokument: <a className="text-purple-700 underline" href={app.documentUrl} target="_blank" rel="noreferrer">Datei oeffnen</a>
+                        Dokument: <a className="text-purple-700 underline" href={app.documentUrl} target="_blank" rel="noreferrer">{tx.documentOpen}</a>
                       </p>
                     )}
                     {app.documentName && <p>Dateiname: {app.documentName}</p>}
@@ -595,7 +637,7 @@ export default function AdminDashboard() {
                     {app.compliance && app.compliance.contractAcceptedAt && <p>Contract accepted at: {new Date(app.compliance.contractAcceptedAt).toLocaleString()}</p>}
                     {app.compliance && <p>Training completed: {app.compliance.trainingCompleted ? 'yes' : 'no'}</p>}
                     {app.compliance && app.compliance.trainingCompletedAt && <p>Training completed at: {new Date(app.compliance.trainingCompletedAt).toLocaleString()}</p>}
-                    {app.reviewNote && <p>Review Note: {app.reviewNote}</p>}
+                    {app.reviewNote && <p>{tx.reviewNote}: {app.reviewNote}</p>}
                     {app.reviewedAt && <p>Reviewed At: {new Date(app.reviewedAt).toLocaleString()}</p>}
                   </div>
                 )}
@@ -657,11 +699,13 @@ export default function AdminDashboard() {
             </div>
           )}
         </div>
+        )}
 
+        {activeSection === 'requests' && (
         <div id="admin-requests" className="bg-white rounded-xl border border-gray-200 p-6">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">{tx.requests}</h2>
-          {loading && <p className="text-gray-600">Lade Daten...</p>}
-          {!loading && requests.length === 0 && <p className="text-gray-600">Keine Requests gefunden.</p>}
+          {loading && <p className="text-gray-600">{tx.loadingData}</p>}
+          {!loading && requests.length === 0 && <p className="text-gray-600">{tx.noRequests}</p>}
           <div className="space-y-5">
             {requests.map((request) => (
               <div key={request.id} className="rounded-lg border border-gray-200 p-4">
@@ -673,7 +717,7 @@ export default function AdminDashboard() {
                       onClick={() => toggleRequest(request.id)}
                       className="rounded-lg border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50"
                     >
-                      {openRequestIds[request.id] ? 'Schliessen' : 'Oeffnen'}
+                      {openRequestIds[request.id] ? tx.close : tx.open}
                     </button>
                     <span
                       className={`text-xs px-2 py-1 rounded-full ${
@@ -689,13 +733,13 @@ export default function AdminDashboard() {
                   </div>
                 </div>
                 <p className="text-sm text-gray-700 mt-1">
-                  Kunde: {request.customerName} ({request.customerEmail}) | Budget: EUR {request.budget.toLocaleString()}
+                  {tx.customer}: {request.customerName} ({request.customerEmail}) | Budget: EUR {request.budget.toLocaleString()}
                 </p>
                 {request.customerPhone && <p className="text-sm text-gray-600 mt-1">Telefon: {request.customerPhone}</p>}
-                <p className="text-sm text-gray-600 mt-1">Frist bis: {new Date(request.expiresAt).toLocaleString()}</p>
+                <p className="text-sm text-gray-600 mt-1">{tx.deadline}: {new Date(request.expiresAt).toLocaleString()}</p>
                 {openRequestIds[request.id] && (
                 <div className="mt-3 space-y-2">
-                  {request.offers.length === 0 && <p className="text-sm text-gray-500">Keine Offers</p>}
+                  {request.offers.length === 0 && <p className="text-sm text-gray-500">{tx.noOffers}</p>}
                   {request.offers.map((offer) => (
                     <div key={offer.id} className="rounded-lg border border-gray-200 p-3">
                       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -738,21 +782,21 @@ export default function AdminDashboard() {
                             onClick={() => updateOffer(request.id, offer.id, 'accepted')}
                             className="rounded-lg bg-green-600 text-white px-3 py-2 text-xs hover:bg-green-700"
                           >
-                            Akzeptieren
+                            {tx.accept}
                           </button>
                           <button
                             type="button"
                             onClick={() => updateOffer(request.id, offer.id, 'declined')}
                             className="rounded-lg bg-red-100 text-red-700 px-3 py-2 text-xs hover:bg-red-200"
                           >
-                            Ablehnen
+                            {tx.reject}
                           </button>
                           <button
                             type="button"
                             onClick={() => updateOffer(request.id, offer.id, 'ignored')}
                             className="rounded-lg bg-gray-200 text-gray-800 px-3 py-2 text-xs hover:bg-gray-300"
                           >
-                            Ignorieren
+                            {tx.ignore}
                           </button>
                         </div>
                       )}
@@ -764,7 +808,9 @@ export default function AdminDashboard() {
             ))}
           </div>
         </div>
+        )}
 
+        {activeSection === 'compliance' && (
         <div id="admin-compliance" className="bg-white rounded-xl border border-gray-200 p-6">
           <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
             <h2 className="text-xl font-semibold text-gray-900">Vendor Compliance (DB)</h2>
@@ -813,7 +859,9 @@ export default function AdminDashboard() {
             </div>
           )}
         </div>
+        )}
 
+        {activeSection === 'overview' && (
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
             <h2 className="text-xl font-semibold text-gray-900">Payout Transfers</h2>
@@ -890,7 +938,9 @@ export default function AdminDashboard() {
             </div>
           )}
         </div>
+        )}
 
+        {activeSection === 'overview' && (
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
             <h2 className="text-xl font-semibold text-gray-900">Admin Audit Log</h2>
@@ -925,10 +975,12 @@ export default function AdminDashboard() {
             </div>
           )}
         </div>
+        )}
 
+        {activeSection === 'inquiries' && (
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">{tx.inquiries}</h2>
-          {inquiries.length === 0 && <p className="text-gray-600">Keine Vendor-Anfragen vorhanden.</p>}
+          {inquiries.length === 0 && <p className="text-gray-600">{tx.noInquiries}</p>}
           <div className="space-y-3">
             {inquiries.map((inq) => (
               <div key={inq.id} className="rounded-lg border border-gray-200 p-4">
@@ -936,12 +988,12 @@ export default function AdminDashboard() {
                   <p className="font-medium text-gray-900">{inq.subject}</p>
                   <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-700">{inq.status}</span>
                 </div>
-                <p className="text-sm text-gray-700 mt-1">Von: {inq.vendorEmail}</p>
+                <p className="text-sm text-gray-700 mt-1">{tx.from}: {inq.vendorEmail}</p>
                 <p className="text-sm text-gray-600 mt-1">{inq.message}</p>
                 <div className="mt-3 flex flex-col sm:flex-row gap-2">
                   <input
                     type="text"
-                    placeholder={isDe ? 'Antwort an Vendor...' : 'Reply to vendor...'}
+                    placeholder={isDe ? 'Antwort an Anbieter...' : 'Reply to vendor...'}
                     value={inquiryReplyDrafts[inq.id] || ''}
                     onChange={(e) => setInquiryReplyDrafts((prev) => ({ ...prev, [inq.id]: e.target.value }))}
                     className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm"
@@ -961,6 +1013,7 @@ export default function AdminDashboard() {
             ))}
           </div>
         </div>
+        )}
 
         {selectedApplication && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
@@ -968,14 +1021,14 @@ export default function AdminDashboard() {
               <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-gray-200 bg-white px-5 py-4">
                 <div>
                   <h3 className="text-xl font-semibold text-gray-900">{selectedApplication.businessName}</h3>
-                  <p className="text-sm text-gray-600">Vendor-Bewerbung: {selectedApplication.id}</p>
+                  <p className="text-sm text-gray-600">{tx.applications}: {selectedApplication.id}</p>
                 </div>
                 <button
                   type="button"
                   onClick={closeApplicationDetails}
                   className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
                 >
-                  Schliessen
+                  {tx.close}
                 </button>
               </div>
 
@@ -986,7 +1039,7 @@ export default function AdminDashboard() {
                   <p><strong>E-Mail:</strong> {selectedApplication.email}</p>
                   <p><strong>Stadt:</strong> {selectedApplication.city || '-'}</p>
                   <p><strong>Erstellt:</strong> {new Date(selectedApplication.createdAt).toLocaleString()}</p>
-                  <p><strong>Geprueft:</strong> {selectedApplication.reviewedAt ? new Date(selectedApplication.reviewedAt).toLocaleString() : '-'}</p>
+                  <p><strong>{tx.reviewedAt}:</strong> {selectedApplication.reviewedAt ? new Date(selectedApplication.reviewedAt).toLocaleString() : '-'}</p>
                 </div>
 
                 <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-2">
@@ -1006,7 +1059,7 @@ export default function AdminDashboard() {
                         target="_blank"
                         rel="noreferrer"
                       >
-                        Datei oeffnen
+                        {tx.documentOpen}
                       </a>
                     </p>
                   ) : (
@@ -1015,14 +1068,14 @@ export default function AdminDashboard() {
                 </div>
 
                 <div className="rounded-lg border border-gray-200 p-3">
-                  <p className="font-medium text-gray-900 mb-1">Business Intro</p>
+                  <p className="font-medium text-gray-900 mb-1">{tx.businessIntro}</p>
                   <p className="whitespace-pre-wrap break-words text-gray-700">
                     {selectedApplication.businessIntro || '-'}
                   </p>
                 </div>
 
                 <div className="rounded-lg border border-gray-200 p-3">
-                  <p className="font-medium text-gray-900 mb-1">Review Note</p>
+                  <p className="font-medium text-gray-900 mb-1">{tx.reviewNote}</p>
                   <p className="whitespace-pre-wrap break-words text-gray-700">
                     {selectedApplication.reviewNote || '-'}
                   </p>
