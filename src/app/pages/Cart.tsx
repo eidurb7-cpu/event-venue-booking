@@ -3,7 +3,7 @@ import { ArrowRight, ShoppingCart, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCart } from '../context/CartContext';
 import { getCurrentUser } from '../utils/auth';
-import { ServiceRequest, createRequest, getCustomerProfile, getCustomerRequests, updateCustomerProfile } from '../utils/api';
+import { ServiceRequest, cancelCustomerRequest, createRequest, getCustomerProfile, getCustomerRequests, updateCustomerProfile } from '../utils/api';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
@@ -200,6 +200,11 @@ export default function Cart() {
     const acceptedOffer = request.offers.find((offer) => offer.status === 'accepted');
     if (acceptedOffer) return 'Approved - pay in Customer Portfolio';
     return 'Offer received - review in Customer Portfolio';
+  }
+
+  function getLinkedRequest(service: SentServiceRequest): ServiceRequest | null {
+    if (!service.requestId) return null;
+    return customerRequests.find((item) => item.id === service.requestId) || null;
   }
 
   async function checkout() {
@@ -406,6 +411,25 @@ export default function Cart() {
     }
   }
 
+  async function cancelSentRequest(requestId: string) {
+    if (!customerEmail.trim()) {
+      setUiError('Please login with a customer account first.');
+      return;
+    }
+    setUiError('');
+    setUiInfo('');
+    try {
+      await cancelCustomerRequest(requestId, customerEmail.trim());
+      await loadCustomerRequests(customerEmail.trim());
+      setUiInfo('Request cancelled.');
+      toast.success('Request cancelled.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to cancel request.';
+      setUiError(message);
+      toast.error(message);
+    }
+  }
+
   function saveForLater() {
     setUiError('');
     setUiInfo('');
@@ -533,6 +557,19 @@ export default function Cart() {
                       >
                         Open in Customer Portfolio
                       </Link>
+                      {(() => {
+                        const request = getLinkedRequest(service);
+                        if (!request || request.status !== 'open' || !service.requestId) return null;
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => cancelSentRequest(service.requestId as string)}
+                            className="ml-3 text-xs font-medium text-red-600 hover:text-red-800"
+                          >
+                            Cancel request
+                          </button>
+                        );
+                      })()}
                     </div>
                   </div>
                 ))}

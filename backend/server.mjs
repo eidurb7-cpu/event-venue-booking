@@ -3467,6 +3467,73 @@ createServer(async (req, res) => {
       return sendJson(res, 200, { requests: requests.map(serializeRequest) });
     }
 
+    if (req.method === 'POST' && path.match(/^\/api\/requests\/[^/]+\/cancel$/)) {
+      ensureLegacyFlowEnabled();
+      const auth = requireJwt(req, 'customer', 'admin');
+      await expireStaleRequests();
+      const requestId = path.split('/')[3];
+      const body = await readBody(req);
+      const isAdmin = auth.role === 'admin' || isAdminAuthorized(req);
+
+      const request = await prisma.serviceRequest.findUnique({
+        where: { id: requestId },
+        include: { offers: true },
+      });
+      if (!request) return sendJson(res, 404, { error: 'Request not found' });
+
+      if (!isAdmin) {
+        const customerEmail = String(body.customerEmail || '').trim().toLowerCase();
+        if (!customerEmail) {
+          return sendJson(res, 400, { error: 'customerEmail is required for cancellation' });
+        }
+        if (customerEmail !== String(auth.email || '').toLowerCase()) {
+          return sendJson(res, 403, { error: 'Token customer mismatch' });
+        }
+        if (customerEmail !== String(request.customerEmail || '').toLowerCase()) {
+          return sendJson(res, 403, { error: 'You can only cancel your own requests' });
+        }
+      }
+
+      if (request.status !== 'open') {
+        return sendJson(res, 400, { error: `Request is already ${request.status}` });
+      }
+
+      const hasPaidOffer = (request.offers || []).some((offer) => offer.paymentStatus === 'paid');
+      if (hasPaidOffer) {
+        return sendJson(res, 400, { error: 'Paid requests cannot be cancelled' });
+      }
+
+      await prisma.$transaction(async (tx) => {
+        await tx.serviceRequest.update({
+          where: { id: request.id },
+          data: {
+            status: 'closed',
+            closedAt: new Date(),
+            closedReason: 'customer_cancelled',
+          },
+        });
+        await tx.vendorOffer.updateMany({
+          where: {
+            requestId: request.id,
+            paymentStatus: { not: 'paid' },
+            status: { in: ['pending', 'accepted'] },
+          },
+          data: { status: 'ignored' },
+        });
+      });
+
+      const updated = await prisma.serviceRequest.findUnique({
+        where: { id: request.id },
+        include: { offers: { orderBy: { createdAt: 'desc' } } },
+      });
+      if (!updated) return sendJson(res, 404, { error: 'Request not found after cancellation' });
+
+      if (isAdmin) {
+        await writeAdminAuditLog(req, 'request_cancelled', request.id, { reason: 'customer_cancelled' });
+      }
+      return sendJson(res, 200, { request: serializeRequest(updated), cancelled: true });
+    }
+
     if (req.method === 'GET' && path.match(/^\/api\/requests\/[^/]+\/responses$/)) {
       ensureLegacyFlowEnabled();
       const auth = requireJwt(req, 'customer', 'vendor', 'admin');

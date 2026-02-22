@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router';
-import { ServiceRequest, createStripeCheckoutSession, getCustomerProfile, getCustomerRequests, setOfferStatus, updateCustomerProfile } from '../utils/api';
+import { ServiceRequest, cancelCustomerRequest, createStripeCheckoutSession, getCustomerProfile, getCustomerRequests, setOfferStatus, updateCustomerProfile } from '../utils/api';
 import { getCurrentUser } from '../utils/auth';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -42,6 +42,7 @@ export default function CustomerPortfolio() {
     accept: isDe ? 'Akzeptieren' : 'Accept',
     ignore: isDe ? 'Ignorieren' : 'Ignore',
     decline: isDe ? 'Ablehnen' : 'Decline',
+    cancelRequest: isDe ? 'Anfrage stornieren' : 'Cancel request',
     stripeNote: isDe ? 'Zahlung ueber Stripe. Vendor-Auszahlung erfolgt automatisch, wenn Vendor Stripe Connect verknuepft hat.' : 'Payment via Stripe. Vendor payout runs automatically when Stripe Connect is linked.',
     pay: isDe ? 'Mit Stripe bezahlen' : 'Pay with Stripe',
     paid: isDe ? 'Zahlung erfolgreich abgeschlossen.' : 'Payment completed successfully.',
@@ -161,6 +162,20 @@ export default function CustomerPortfolio() {
       await loadRequests(customerEmail);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Fehler beim Aktualisieren des Angebots.');
+    }
+  };
+
+  const cancelRequestByCustomer = async (requestId: string) => {
+    if (!customerEmail.trim()) return;
+    setError('');
+    try {
+      await withGuard(
+        cancelCustomerRequest(requestId, customerEmail.trim()),
+        'API response timeout while cancelling request. Please retry.',
+      );
+      await loadRequests(customerEmail);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to cancel request.');
     }
   };
 
@@ -340,6 +355,17 @@ export default function CustomerPortfolio() {
               <p className="text-sm text-gray-600 mt-1">
                 {tx.deadline}: {new Date(request.expiresAt).toLocaleString()}
               </p>
+              {request.status === 'open' && (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={() => cancelRequestByCustomer(request.id)}
+                    className="rounded-lg bg-red-100 text-red-700 px-4 py-2 text-sm font-semibold hover:bg-red-200"
+                  >
+                    {tx.cancelRequest}
+                  </button>
+                </div>
+              )}
 
               <div className="mt-4 space-y-3">
                 {request.offers.length === 0 && (

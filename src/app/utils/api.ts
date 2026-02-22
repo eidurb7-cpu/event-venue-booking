@@ -422,6 +422,13 @@ export function getCustomerRequests(customerEmail: string) {
   return request(`/api/requests?customerEmail=${encodeURIComponent(customerEmail)}`) as Promise<{ requests: ServiceRequest[] }>;
 }
 
+export function cancelCustomerRequest(requestId: string, customerEmail: string) {
+  return request(`/api/requests/${encodeURIComponent(requestId)}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ customerEmail }),
+  }) as Promise<{ request: ServiceRequest; cancelled: boolean }>;
+}
+
 export function getRequestResponses(requestId: string) {
   return request(`/api/requests/${requestId}/responses`) as Promise<{
     request: ServiceRequest;
