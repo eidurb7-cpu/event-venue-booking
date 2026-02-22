@@ -100,6 +100,7 @@ export default function AdminDashboard() {
     reviewedAt: isDe ? 'Geprüft' : 'Reviewed',
     businessIntro: isDe ? 'Unternehmensvorstellung' : 'Business intro',
     from: isDe ? 'Von' : 'From',
+    attachmentLinks: isDe ? 'Datei-/Bild-Links (optional, mit Komma trennen)' : 'Document/image links (optional, comma-separated)',
   };
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
@@ -123,6 +124,7 @@ export default function AdminDashboard() {
   const [backfillingCompliance, setBackfillingCompliance] = useState(false);
   const [reviewNoteDrafts, setReviewNoteDrafts] = useState<Record<string, string>>({});
   const [inquiryReplyDrafts, setInquiryReplyDrafts] = useState<Record<string, string>>({});
+  const [inquiryAttachmentDrafts, setInquiryAttachmentDrafts] = useState<Record<string, string>>({});
   const [replyingInquiryId, setReplyingInquiryId] = useState('');
   const appStatusByEmail = Object.fromEntries(applications.map((app) => [String(app.email || '').toLowerCase(), app.status]));
   const activeApplications = applications.filter((a) => a.status !== 'approved');
@@ -359,12 +361,17 @@ export default function AdminDashboard() {
       toast.error(isDe ? 'Bitte zuerst eine Antwort eingeben.' : 'Please enter a reply first.');
       return;
     }
+    const attachmentUrls = String(inquiryAttachmentDrafts[inquiryId] || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
     setReplyingInquiryId(inquiryId);
     setError('');
     try {
-      const result = await replyAdminInquiry(adminToken, inquiryId, replyMessage);
+      const result = await replyAdminInquiry(adminToken, inquiryId, replyMessage, attachmentUrls);
       setInquiries((prev) => prev.map((row) => (row.id === inquiryId ? result.inquiry : row)));
       setInquiryReplyDrafts((prev) => ({ ...prev, [inquiryId]: '' }));
+      setInquiryAttachmentDrafts((prev) => ({ ...prev, [inquiryId]: '' }));
       toast.success(isDe ? 'Antwort gesendet.' : 'Reply sent.');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to send reply.';
@@ -437,6 +444,7 @@ export default function AdminDashboard() {
               <button
                 type="button"
                 onClick={() => loadDashboard()}
+                title={isDe ? 'Alle Admin-Daten neu laden' : 'Reload all admin data'}
                 className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm hover:bg-gray-50"
               >
                 {tx.refresh}
@@ -444,6 +452,7 @@ export default function AdminDashboard() {
               <button
                 type="button"
                 onClick={seedServices}
+                title={isDe ? 'Demo-Servicekatalog in die Datenbank schreiben' : 'Insert demo service catalog into database'}
                 className="rounded-lg border border-purple-300 text-purple-700 px-4 py-2.5 text-sm hover:bg-purple-50"
               >
                 {tx.seedServices}
@@ -451,6 +460,7 @@ export default function AdminDashboard() {
               <button
                 type="button"
                 onClick={seedVendors}
+                title={isDe ? 'Demo-Anbieter und Profile anlegen' : 'Create demo vendors and profiles'}
                 className="rounded-lg border border-green-300 text-green-700 px-4 py-2.5 text-sm hover:bg-green-50"
               >
                 {tx.seedVendors}
@@ -458,6 +468,7 @@ export default function AdminDashboard() {
               <button
                 type="button"
                 onClick={logout}
+                title={isDe ? 'Admin-Sitzung beenden' : 'Sign out of admin session'}
                 className="rounded-lg bg-gray-900 text-white px-4 py-2.5 text-sm hover:bg-black"
               >
                 {tx.logout}
@@ -476,6 +487,7 @@ export default function AdminDashboard() {
                 <Link
                   key={section}
                   to={`${adminBasePath}/${section}`}
+                  title={isDe ? `Bereich öffnen: ${tx.tabs[section]}` : `Open section: ${tx.tabs[section]}`}
                   className={`rounded-lg border px-3 py-2 text-sm transition-colors ${
                     isActive
                       ? 'border-purple-300 bg-purple-50 text-purple-700'
@@ -588,6 +600,7 @@ export default function AdminDashboard() {
                     <button
                       type="button"
                       onClick={() => toggleApplication(app.id)}
+                      title={isDe ? 'Karten-Details ein-/ausblenden' : 'Toggle card details'}
                       className="rounded-lg border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50"
                     >
                       {openApplicationIds[app.id] ? tx.close : tx.open}
@@ -595,6 +608,7 @@ export default function AdminDashboard() {
                     <button
                       type="button"
                       onClick={() => openApplicationDetails(app)}
+                      title={isDe ? 'Vollständige Bewerbungsdetails öffnen' : 'Open full application details'}
                       className="rounded-lg border border-purple-300 px-2 py-1 text-xs text-purple-700 hover:bg-purple-50"
                     >
                       {tx.viewDetails}
@@ -654,6 +668,7 @@ export default function AdminDashboard() {
                   <button
                     type="button"
                     onClick={() => updateApplication(app.id, 'approved', reviewNoteDrafts[app.id])}
+                    title={isDe ? 'Anbieter freigeben' : 'Approve this vendor'}
                     className="rounded-lg bg-green-600 text-white px-3 py-2 text-sm hover:bg-green-700"
                   >
                     {tx.approve}
@@ -661,6 +676,7 @@ export default function AdminDashboard() {
                   <button
                     type="button"
                     onClick={() => updateApplication(app.id, 'rejected', reviewNoteDrafts[app.id])}
+                    title={isDe ? 'Bewerbung ablehnen' : 'Reject this application'}
                     className="rounded-lg bg-red-100 text-red-700 px-3 py-2 text-sm hover:bg-red-200"
                   >
                     {tx.reject}
@@ -668,6 +684,7 @@ export default function AdminDashboard() {
                   <button
                     type="button"
                     onClick={() => updateApplication(app.id, 'pending_review')}
+                    title={isDe ? 'Zurück in Prüfung setzen' : 'Move back to pending review'}
                     className="rounded-lg bg-gray-200 text-gray-800 px-3 py-2 text-sm hover:bg-gray-300"
                   >
                     {tx.backToPending}
@@ -687,6 +704,7 @@ export default function AdminDashboard() {
                       <button
                         type="button"
                         onClick={() => openApplicationDetails(app)}
+                        title={isDe ? 'Vollständige Bewerbungsdetails öffnen' : 'Open full application details'}
                         className="rounded-lg border border-purple-300 px-2 py-1 text-xs text-purple-700 hover:bg-purple-50"
                       >
                         {tx.viewDetails}
@@ -715,6 +733,7 @@ export default function AdminDashboard() {
                     <button
                       type="button"
                       onClick={() => toggleRequest(request.id)}
+                      title={isDe ? 'Anfrage und Angebote ein-/ausblenden' : 'Toggle request and offers'}
                       className="rounded-lg border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50"
                     >
                       {openRequestIds[request.id] ? tx.close : tx.open}
@@ -780,6 +799,7 @@ export default function AdminDashboard() {
                           <button
                             type="button"
                             onClick={() => updateOffer(request.id, offer.id, 'accepted')}
+                            title={isDe ? 'Angebot akzeptieren' : 'Accept offer'}
                             className="rounded-lg bg-green-600 text-white px-3 py-2 text-xs hover:bg-green-700"
                           >
                             {tx.accept}
@@ -787,6 +807,7 @@ export default function AdminDashboard() {
                           <button
                             type="button"
                             onClick={() => updateOffer(request.id, offer.id, 'declined')}
+                            title={isDe ? 'Angebot ablehnen' : 'Decline offer'}
                             className="rounded-lg bg-red-100 text-red-700 px-3 py-2 text-xs hover:bg-red-200"
                           >
                             {tx.reject}
@@ -794,6 +815,7 @@ export default function AdminDashboard() {
                           <button
                             type="button"
                             onClick={() => updateOffer(request.id, offer.id, 'ignored')}
+                            title={isDe ? 'Angebot ignorieren, ohne Entscheidung' : 'Ignore offer without decision'}
                             className="rounded-lg bg-gray-200 text-gray-800 px-3 py-2 text-xs hover:bg-gray-300"
                           >
                             {tx.ignore}
@@ -818,6 +840,7 @@ export default function AdminDashboard() {
               type="button"
               onClick={runComplianceBackfill}
               disabled={backfillingCompliance}
+              title={isDe ? 'Legacy-Compliance-Daten in DB übertragen' : 'Migrate legacy compliance data into DB'}
               className="rounded-lg bg-indigo-600 text-white px-4 py-2 text-sm hover:bg-indigo-700 disabled:opacity-60"
             >
               {backfillingCompliance ? 'Backfilling...' : 'Backfill from legacy JSON'}
@@ -922,6 +945,7 @@ export default function AdminDashboard() {
                             type="button"
                             onClick={() => retryPayoutRelease(row.id)}
                             disabled={releasingPayoutId === row.id}
+                            title={isDe ? 'Auszahlung erneut an Stripe senden' : 'Retry sending payout to Stripe'}
                             className="rounded-md border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-60"
                           >
                             {releasingPayoutId === row.id ? 'Releasing...' : 'Retry release'}
@@ -1001,17 +1025,27 @@ export default function AdminDashboard() {
                 <p className="text-sm text-gray-700 mt-1">{tx.from}: {inq.vendorEmail}</p>
                 <p className="text-sm text-gray-600 mt-1">{inq.message}</p>
                 <div className="mt-3 flex flex-col sm:flex-row gap-2">
-                  <input
-                    type="text"
-                    placeholder={isDe ? 'Antwort an Anbieter...' : 'Reply to vendor...'}
-                    value={inquiryReplyDrafts[inq.id] || ''}
-                    onChange={(e) => setInquiryReplyDrafts((prev) => ({ ...prev, [inq.id]: e.target.value }))}
-                    className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                  />
+                  <div className="flex-1 space-y-2">
+                    <input
+                      type="text"
+                      placeholder={isDe ? 'Antwort an Anbieter...' : 'Reply to vendor...'}
+                      value={inquiryReplyDrafts[inq.id] || ''}
+                      onChange={(e) => setInquiryReplyDrafts((prev) => ({ ...prev, [inq.id]: e.target.value }))}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    />
+                    <input
+                      type="text"
+                      placeholder={tx.attachmentLinks}
+                      value={inquiryAttachmentDrafts[inq.id] || ''}
+                      onChange={(e) => setInquiryAttachmentDrafts((prev) => ({ ...prev, [inq.id]: e.target.value }))}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    />
+                  </div>
                   <button
                     type="button"
                     onClick={() => replyInquiry(inq.id)}
                     disabled={replyingInquiryId === inq.id}
+                    title={isDe ? 'Antwort per E-Mail an Anbieter senden' : 'Send email reply to vendor'}
                     className="rounded-lg bg-indigo-600 text-white px-4 py-2 text-sm hover:bg-indigo-700 disabled:opacity-60"
                   >
                     {replyingInquiryId === inq.id
@@ -1036,6 +1070,7 @@ export default function AdminDashboard() {
                 <button
                   type="button"
                   onClick={closeApplicationDetails}
+                  title={isDe ? 'Detailansicht schließen' : 'Close details view'}
                   className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
                 >
                   {tx.close}
@@ -1109,6 +1144,7 @@ export default function AdminDashboard() {
                     await updateApplication(selectedApplication.id, 'approved', reviewNoteDrafts[selectedApplication.id]);
                     closeApplicationDetails();
                   }}
+                  title={isDe ? 'Anbieter freigeben' : 'Approve this vendor'}
                   className="rounded-lg bg-green-600 text-white px-3 py-2 text-sm hover:bg-green-700"
                 >
                   {tx.approve}
@@ -1119,6 +1155,7 @@ export default function AdminDashboard() {
                     await updateApplication(selectedApplication.id, 'rejected', reviewNoteDrafts[selectedApplication.id]);
                     closeApplicationDetails();
                   }}
+                  title={isDe ? 'Bewerbung ablehnen' : 'Reject this application'}
                   className="rounded-lg bg-red-100 text-red-700 px-3 py-2 text-sm hover:bg-red-200"
                 >
                   {tx.reject}
@@ -1129,6 +1166,7 @@ export default function AdminDashboard() {
                     await updateApplication(selectedApplication.id, 'pending_review');
                     closeApplicationDetails();
                   }}
+                  title={isDe ? 'Zurück in Prüfung setzen' : 'Move back to pending review'}
                   className="rounded-lg bg-gray-200 text-gray-800 px-3 py-2 text-sm hover:bg-gray-300"
                 >
                   {tx.backToPending}

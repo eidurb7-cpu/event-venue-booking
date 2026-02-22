@@ -455,6 +455,16 @@ export function applyVendorOffer(
   });
 }
 
+export function declineVendorRequest(
+  requestId: string,
+  payload: { vendorName?: string; message?: string } = {},
+) {
+  return request(`/api/vendor/requests/${encodeURIComponent(requestId)}/decline`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export function respondToRequest(
   requestId: string,
   payload: { vendorName: string; vendorEmail?: string; price: number; message?: string },
@@ -812,11 +822,16 @@ export function getAdminInquiries(adminToken: string) {
   }>;
 }
 
-export function replyAdminInquiry(adminToken: string, inquiryId: string, replyMessage: string) {
+export function replyAdminInquiry(
+  adminToken: string,
+  inquiryId: string,
+  replyMessage: string,
+  attachmentUrls: string[] = [],
+) {
   return request(`/api/admin/inquiries/${encodeURIComponent(inquiryId)}/reply`, {
     method: 'POST',
     headers: withAdminToken(adminToken),
-    body: JSON.stringify({ replyMessage }),
+    body: JSON.stringify({ replyMessage, attachmentUrls }),
   }) as Promise<{
     inquiry: {
       id: string;

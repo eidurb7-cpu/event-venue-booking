@@ -13,6 +13,7 @@ import {
   completeVendorTraining,
   createStripeConnectOnboarding,
   createVendorPost,
+  declineVendorRequest,
   getVendorCompliance,
   getStripeConnectStatus,
   getOpenRequests,
@@ -56,6 +57,8 @@ export default function VendorPortfolio() {
     yourPrice: isDe ? 'Dein Preis (EUR)' : 'Your price (EUR)',
     optionalMessage: isDe ? 'Nachricht (optional)' : 'Message (optional)',
     sendOffer: isDe ? 'Angebot senden' : 'Send offer',
+    declineRequest: isDe ? 'Anfrage ablehnen' : 'Decline request',
+    declining: isDe ? 'Wird abgelehnt...' : 'Declining...',
     loadingOffers: isDe ? 'Deine Angebote werden geladen...' : 'Loading your offers...',
     noOffersYet: isDe ? 'Noch keine gesendeten Angebote gefunden.' : 'No sent offers yet.',
     requestStatus: isDe ? 'Anfrage-Status' : 'Request status',
@@ -83,6 +86,7 @@ export default function VendorPortfolio() {
   const [postSuccess, setPostSuccess] = useState('');
   const [priceByRequest, setPriceByRequest] = useState<Record<string, string>>({});
   const [messageByRequest, setMessageByRequest] = useState<Record<string, string>>({});
+  const [decliningRequestId, setDecliningRequestId] = useState('');
   const [inquirySubject, setInquirySubject] = useState('');
   const [inquiryMessage, setInquiryMessage] = useState('');
   const [postForm, setPostForm] = useState({
@@ -258,6 +262,29 @@ export default function VendorPortfolio() {
     if (status === 'pending') return isDe ? 'Ausstehend' : 'Pending';
     if (status === 'failed') return isDe ? 'Fehlgeschlagen' : 'Failed';
     return isDe ? 'Unbezahlt' : 'Unpaid';
+  };
+
+  const declineRequest = async (requestId: string) => {
+    if (!vendorCompliance?.canPublish) {
+      setError('Publishing is blocked until admin approval, contract acceptance, and training completion.');
+      return;
+    }
+    if (!vendorEmail.trim()) return;
+    setDecliningRequestId(requestId);
+    setError('');
+    try {
+      await declineVendorRequest(requestId, {
+        vendorName: vendorName.trim() || undefined,
+        message: messageByRequest[requestId] || undefined,
+      });
+      setPriceByRequest((p) => ({ ...p, [requestId]: '' }));
+      setMessageByRequest((p) => ({ ...p, [requestId]: '' }));
+      await Promise.all([loadOpenRequests(), loadMyOffers(vendorEmail)]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Fehler beim Ablehnen der Anfrage.');
+    } finally {
+      setDecliningRequestId('');
+    }
   };
 
   const submitInquiry = async () => {
@@ -821,13 +848,23 @@ export default function VendorPortfolio() {
                 />
               </div>
 
-              <button
-                type="button"
-                onClick={() => applyOffer(request.id)}
-                className="mt-3 rounded-lg bg-purple-600 text-white px-4 py-2.5 hover:bg-purple-700"
-              >
-                {tx.sendOffer}
-              </button>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => applyOffer(request.id)}
+                  className="rounded-lg bg-purple-600 text-white px-4 py-2.5 hover:bg-purple-700"
+                >
+                  {tx.sendOffer}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => declineRequest(request.id)}
+                  disabled={decliningRequestId === request.id}
+                  className="rounded-lg border border-red-300 bg-red-50 text-red-700 px-4 py-2.5 hover:bg-red-100 disabled:opacity-60"
+                >
+                  {decliningRequestId === request.id ? tx.declining : tx.declineRequest}
+                </button>
+              </div>
             </div>
           ))}
         </div>

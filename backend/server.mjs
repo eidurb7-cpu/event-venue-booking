@@ -3536,10 +3536,12 @@ createServer(async (req, res) => {
       });
 
       const filtered = requests.filter((request) => {
-        const existingOfferByVendor = (request.offers || []).some(
+        const existingOfferByVendor = (request.offers || []).find(
           (offer) => String(offer.vendorEmail || '').toLowerCase() === vendorEmail.toLowerCase(),
         );
-        if (existingOfferByVendor) return true;
+        if (existingOfferByVendor) {
+          return !['declined', 'ignored'].includes(String(existingOfferByVendor.status || '').toLowerCase());
+        }
 
         const requestKeywords = extractKeywordSet([
           ...(Array.isArray(request.selectedServices) ? request.selectedServices : []),
@@ -3715,6 +3717,68 @@ createServer(async (req, res) => {
           createdAt: offer.createdAt,
           request: serializeRequest({ ...offer.request, offers: [] }),
         })),
+      });
+    }
+
+    if (req.method === 'POST' && path.match(/^\/api\/vendor\/requests\/[^/]+\/decline$/)) {
+      ensureLegacyFlowEnabled();
+      const auth = requireJwt(req, 'vendor');
+      await expireStaleRequests();
+      const requestId = path.split('/')[4];
+      const body = await readBody(req);
+      const vendorEmail = String(auth.email || '').trim().toLowerCase();
+      if (!vendorEmail) return sendJson(res, 401, { error: 'Unauthorized' });
+
+      const request = await prisma.serviceRequest.findUnique({ where: { id: requestId } });
+      if (!request) return sendJson(res, 404, { error: 'Request not found' });
+      if (request.status !== 'open') return sendJson(res, 400, { error: 'Request is closed or expired' });
+
+      const existingOffer = await prisma.vendorOffer.findFirst({
+        where: {
+          requestId,
+          vendorEmail: { equals: vendorEmail, mode: 'insensitive' },
+        },
+      });
+
+      if (existingOffer && existingOffer.paymentStatus === 'paid') {
+        return sendJson(res, 400, { error: 'Paid offers cannot be declined by vendor' });
+      }
+
+      const declineMessage = normalizeOptionalString(body.message, 1200) || 'Declined by vendor';
+      let offer;
+      if (existingOffer) {
+        offer = await prisma.vendorOffer.update({
+          where: { id: existingOffer.id },
+          data: {
+            status: 'declined',
+            message: declineMessage,
+          },
+        });
+      } else {
+        offer = await prisma.vendorOffer.create({
+          data: {
+            requestId,
+            vendorName: normalizeOptionalString(body.vendorName, 255) || 'Vendor',
+            vendorEmail,
+            price: 0,
+            message: declineMessage,
+            status: 'declined',
+            paymentStatus: 'unpaid',
+          },
+        });
+      }
+
+      return sendJson(res, 200, {
+        declined: true,
+        offer: {
+          ...offer,
+          price: Number(offer.price),
+          message: offer.message || '',
+          paymentStatus: offer.paymentStatus || 'unpaid',
+          stripeSessionId: offer.stripeSessionId || null,
+          stripePaymentIntent: offer.stripePaymentIntent || null,
+          paidAt: offer.paidAt || null,
+        },
       });
     }
 
@@ -4127,6 +4191,12 @@ createServer(async (req, res) => {
       const body = await readBody(req);
       const replyMessage = normalizeOptionalString(body?.replyMessage, 2000);
       if (!replyMessage) return sendJson(res, 400, { error: 'replyMessage is required' });
+      const attachmentUrls = Array.isArray(body?.attachmentUrls)
+        ? body.attachmentUrls
+            .map((value) => normalizeOptionalString(value, 1200))
+            .filter(Boolean)
+            .slice(0, 8)
+        : [];
 
       const inquiry = await prisma.vendorInquiry.findUnique({ where: { id: inquiryId } });
       if (!inquiry) return sendJson(res, 404, { error: 'Inquiry not found' });
@@ -4141,6 +4211,13 @@ createServer(async (req, res) => {
           `"${inquiry.subject}"`,
           '',
           replyMessage,
+          ...(attachmentUrls.length > 0
+            ? [
+                '',
+                'Attachments / Links:',
+                ...attachmentUrls.map((url) => `- ${url}`),
+              ]
+            : []),
         ].join('\n'),
       });
 
@@ -4151,6 +4228,7 @@ createServer(async (req, res) => {
 
       await writeAdminAuditLog(req, 'vendor_inquiry_replied', inquiryId, {
         vendorEmail: inquiry.vendorEmail,
+        attachmentUrls,
       });
 
       return sendJson(res, 200, { inquiry: updated, replied: true });
