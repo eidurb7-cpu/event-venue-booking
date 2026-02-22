@@ -37,6 +37,7 @@ export default function CustomerPortfolio() {
     details: isDe ? 'Details' : 'Details',
     deadline: isDe ? 'Frist bis' : 'Deadline',
     noOffers: isDe ? 'Noch keine Vendor-Angebote.' : 'No vendor offers yet.',
+    paymentLocked: isDe ? 'Service-Zahlung ist gesperrt, bis ein Vendor dein Service-Request freigibt.' : 'Service payment is locked until a vendor approves your service request.',
     price: isDe ? 'Preis' : 'Price',
     payment: isDe ? 'Zahlung' : 'Payment',
     accept: isDe ? 'Akzeptieren' : 'Accept',
@@ -369,7 +370,10 @@ export default function CustomerPortfolio() {
 
               <div className="mt-4 space-y-3">
                 {request.offers.length === 0 && (
-                  <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">{tx.noOffers}</div>
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
+                    {tx.noOffers}
+                    <p className="mt-1 text-xs text-amber-700">{tx.paymentLocked}</p>
+                  </div>
                 )}
 
                 {request.offers.map((offer) => (
@@ -398,7 +402,9 @@ export default function CustomerPortfolio() {
                     </p>
 
                     {offer.status === 'pending' && request.status === 'open' && (
-                      <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                      <div className="mt-4">
+                        <p className="mb-2 text-xs text-amber-700">{tx.paymentLocked}</p>
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                         <button
                           type="button"
                           onClick={() => decide(request.id, offer.id, 'accepted')}
@@ -420,6 +426,7 @@ export default function CustomerPortfolio() {
                         >
                           {tx.decline}
                         </button>
+                        </div>
                       </div>
                     )}
 
