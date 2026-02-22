@@ -1,5 +1,6 @@
 import { Link, useNavigate } from 'react-router';
 import { ArrowRight, ShoppingCart, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useCart } from '../context/CartContext';
 import { getCurrentUser } from '../utils/auth';
 import { ServiceRequest, createRequest, getCustomerProfile, getCustomerRequests, updateCustomerProfile } from '../utils/api';
@@ -292,34 +293,38 @@ export default function Cart() {
   async function submitCompleteBookingForm(e: React.FormEvent) {
     e.preventDefault();
     setUiError('');
+    const raiseValidation = (message: string) => {
+      setUiError(message);
+      toast.error(message);
+    };
     if (!bookingForm.name.trim() || !bookingForm.email.trim()) {
-      setUiError('Please enter name and email.');
+      raiseValidation('Please enter name and email.');
       return;
     }
     if (!bookingForm.address.trim()) {
-      setUiError('Please enter billing address before checkout.');
+      raiseValidation('Please enter billing address before checkout.');
       return;
     }
     if (!bookingForm.city.trim() || !bookingForm.postalCode.trim()) {
-      setUiError('Please enter city and postal code before checkout.');
+      raiseValidation('Please enter city and postal code before checkout.');
       return;
     }
     if (!bookingForm.eventType.trim()) {
-      setUiError('Please select event type before checkout.');
+      raiseValidation('Please select event type before checkout.');
       return;
     }
     if (!bookingForm.guestCount.trim() || Number(bookingForm.guestCount) <= 0) {
-      setUiError('Please enter valid guest count before checkout.');
+      raiseValidation('Please enter valid guest count before checkout.');
       return;
     }
     if (!bookingForm.termsAccepted) {
-      setUiError('Please accept the terms before checkout.');
+      raiseValidation('Please accept the terms before checkout.');
       return;
     }
     try {
       await persistCustomerProfileNow();
     } catch {
-      setUiError('Could not save customer profile. Please try again.');
+      raiseValidation('Could not save customer profile. Please try again.');
       return;
     }
     await checkout();
@@ -736,7 +741,7 @@ export default function Cart() {
               </p>
                 <button
                   type="submit"
-                  disabled={!cart.venue || isBookingBlockedForRole || payNowLoading || !isCheckoutReady}
+                  disabled={!cart.venue || isBookingBlockedForRole || payNowLoading}
                   className="inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 >
                   {payNowLoading ? 'Starting checkout...' : 'Pay now'}
