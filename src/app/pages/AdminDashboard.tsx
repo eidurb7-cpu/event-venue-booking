@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Cell, LineChart, Line } from 'recharts';
+import { toast } from 'sonner';
 import {
   AdminAuditLogRow,
   AdminPayoutRow,
@@ -53,6 +54,9 @@ export default function AdminDashboard() {
     applications: isDe ? 'Vendor-Bewerbungen' : 'Vendor Applications',
     requests: isDe ? 'Requests und Offers' : 'Requests and Offers',
     inquiries: isDe ? 'Vendor Inquiries an Admin' : 'Vendor inquiries to admin',
+    approve: isDe ? 'Freigeben' : 'Approve',
+    reject: isDe ? 'Ablehnen' : 'Reject',
+    backToPending: isDe ? 'Zurueck auf Pending' : 'Back to pending',
   };
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
@@ -219,8 +223,13 @@ export default function AdminDashboard() {
           : window.prompt('Optional review note for vendor (shown in database):', '') || undefined;
       await updateVendorApplicationStatus(adminToken, applicationId, status, reviewNote);
       await loadDashboard();
+      if (status === 'approved') toast.success(isDe ? 'Vendor freigegeben.' : 'Vendor approved.');
+      if (status === 'rejected') toast.success(isDe ? 'Vendor abgelehnt.' : 'Vendor rejected.');
+      if (status === 'pending_review') toast.success(isDe ? 'Vendor auf Pending gesetzt.' : 'Vendor moved to pending.');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Fehler beim Aktualisieren der Vendor-Anfrage.');
+      const message = err instanceof Error ? err.message : 'Fehler beim Aktualisieren der Vendor-Anfrage.';
+      setError(message);
+      toast.error(message);
     }
   };
 
@@ -554,21 +563,21 @@ export default function AdminDashboard() {
                     onClick={() => updateApplication(app.id, 'approved')}
                     className="rounded-lg bg-green-600 text-white px-3 py-2 text-sm hover:bg-green-700"
                   >
-                    Freigeben
+                    {tx.approve}
                   </button>
                   <button
                     type="button"
                     onClick={() => updateApplication(app.id, 'rejected')}
                     className="rounded-lg bg-red-100 text-red-700 px-3 py-2 text-sm hover:bg-red-200"
                   >
-                    Ablehnen
+                    {tx.reject}
                   </button>
                   <button
                     type="button"
                     onClick={() => updateApplication(app.id, 'pending_review')}
                     className="rounded-lg bg-gray-200 text-gray-800 px-3 py-2 text-sm hover:bg-gray-300"
                   >
-                    Zurueck auf Pending
+                    {tx.backToPending}
                   </button>
                 </div>
               </div>
@@ -937,7 +946,7 @@ export default function AdminDashboard() {
                   }}
                   className="rounded-lg bg-green-600 text-white px-3 py-2 text-sm hover:bg-green-700"
                 >
-                  Freigeben
+                  {tx.approve}
                 </button>
                 <button
                   type="button"
@@ -947,7 +956,7 @@ export default function AdminDashboard() {
                   }}
                   className="rounded-lg bg-red-100 text-red-700 px-3 py-2 text-sm hover:bg-red-200"
                 >
-                  Ablehnen
+                  {tx.reject}
                 </button>
                 <button
                   type="button"
@@ -957,7 +966,7 @@ export default function AdminDashboard() {
                   }}
                   className="rounded-lg bg-gray-200 text-gray-800 px-3 py-2 text-sm hover:bg-gray-300"
                 >
-                  Zurueck auf Pending
+                  {tx.backToPending}
                 </button>
               </div>
             </div>
