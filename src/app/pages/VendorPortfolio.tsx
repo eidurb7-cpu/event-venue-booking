@@ -43,6 +43,26 @@ export default function VendorPortfolio() {
     servicePosts: isDe ? 'Meine Service-Posts & Verfuegbarkeit' : 'My service posts and availability',
     openRequests: isDe ? 'Offene Kundenanfragen' : 'Open customer requests',
     myOffers: isDe ? 'Meine gesendeten Angebote' : 'My sent offers',
+    requestFlowHint: isDe
+      ? 'Flow: Sende ein Angebot. Der Kunde kann annehmen oder ablehnen. Nach Annahme ist Zahlung moeglich.'
+      : 'Flow: Send an offer. Customer can accept or decline. After acceptance, payment is enabled.',
+    loadingOpenRequests: isDe ? 'Offene Anfragen werden geladen...' : 'Loading open requests...',
+    noOpenRequests: isDe ? 'Keine offenen Anfragen vorhanden.' : 'No open requests available.',
+    customer: isDe ? 'Kunde' : 'Customer',
+    phone: isDe ? 'Telefon' : 'Phone',
+    deadline: isDe ? 'Frist bis' : 'Deadline',
+    servicesLabel: isDe ? 'Services' : 'Services',
+    budgetLabel: isDe ? 'Budget' : 'Budget',
+    yourPrice: isDe ? 'Dein Preis (EUR)' : 'Your price (EUR)',
+    optionalMessage: isDe ? 'Nachricht (optional)' : 'Message (optional)',
+    sendOffer: isDe ? 'Angebot senden' : 'Send offer',
+    loadingOffers: isDe ? 'Deine Angebote werden geladen...' : 'Loading your offers...',
+    noOffersYet: isDe ? 'Noch keine gesendeten Angebote gefunden.' : 'No sent offers yet.',
+    requestStatus: isDe ? 'Anfrage-Status' : 'Request status',
+    yourPriceLabel: isDe ? 'Dein Preis' : 'Your price',
+    payment: isDe ? 'Zahlung' : 'Payment',
+    customerCanPay: isDe ? 'Kunde hat angenommen: Zahlung ist jetzt moeglich.' : 'Customer accepted: payment is now enabled.',
+    waitingCustomerDecision: isDe ? 'Warte auf Kundenentscheidung (annehmen/ablehnen).' : 'Waiting for customer decision (accept/decline).',
   };
   const [vendorName, setVendorName] = useState('');
   const [vendorEmail, setVendorEmail] = useState('');
@@ -223,6 +243,21 @@ export default function VendorPortfolio() {
     setPriceByRequest((p) => ({ ...p, [requestId]: '' }));
     setMessageByRequest((p) => ({ ...p, [requestId]: '' }));
     await Promise.all([loadOpenRequests(), loadMyOffers(vendorEmail)]);
+  };
+
+  const getOfferStatusLabel = (status: string) => {
+    if (status === 'accepted') return isDe ? 'Angenommen' : 'Accepted';
+    if (status === 'declined') return isDe ? 'Abgelehnt' : 'Declined';
+    if (status === 'ignored') return isDe ? 'Ignoriert' : 'Ignored';
+    if (status === 'pending') return isDe ? 'Ausstehend' : 'Pending';
+    return status;
+  };
+
+  const getPaymentStatusLabel = (status: string) => {
+    if (status === 'paid') return isDe ? 'Bezahlt' : 'Paid';
+    if (status === 'pending') return isDe ? 'Ausstehend' : 'Pending';
+    if (status === 'failed') return isDe ? 'Fehlgeschlagen' : 'Failed';
+    return isDe ? 'Unbezahlt' : 'Unpaid';
   };
 
   const submitInquiry = async () => {
@@ -744,14 +779,15 @@ export default function VendorPortfolio() {
 
         <div className="space-y-4">
           <h2 className="text-2xl font-semibold text-gray-900">{tx.openRequests}</h2>
+          <p className="text-sm text-gray-600">{tx.requestFlowHint}</p>
           {loading && (
             <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-600">
-              Lade offene Anfragen...
+              {tx.loadingOpenRequests}
             </div>
           )}
           {!loading && openRequests.length === 0 && (
             <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-600">
-              Keine offenen Anfragen vorhanden.
+              {tx.noOpenRequests}
             </div>
           )}
 
@@ -759,26 +795,26 @@ export default function VendorPortfolio() {
             <div key={request.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-lg font-semibold text-gray-900">{request.id}</h2>
-                <span className="text-sm text-gray-600">Budget: EUR {request.budget.toLocaleString()}</span>
+                <span className="text-sm text-gray-600">{tx.budgetLabel}: EUR {request.budget.toLocaleString()}</span>
               </div>
-              <p className="text-sm text-gray-600 mt-1">Kunde: {request.customerName} ({request.customerEmail})</p>
-              {request.customerPhone && <p className="text-sm text-gray-600 mt-1">Telefon: {request.customerPhone}</p>}
-              <p className="text-sm text-orange-700 mt-1">Frist bis: {new Date(request.expiresAt).toLocaleString()}</p>
-              <p className="text-sm text-gray-700 mt-2">Services: {request.selectedServices.join(', ')}</p>
+              <p className="text-sm text-gray-600 mt-1">{tx.customer}: {request.customerName} ({request.customerEmail})</p>
+              {request.customerPhone && <p className="text-sm text-gray-600 mt-1">{tx.phone}: {request.customerPhone}</p>}
+              <p className="text-sm text-orange-700 mt-1">{tx.deadline}: {new Date(request.expiresAt).toLocaleString()}</p>
+              <p className="text-sm text-gray-700 mt-2">{tx.servicesLabel}: {request.selectedServices.join(', ')}</p>
               {request.notes && <p className="text-sm text-gray-600 mt-2">{request.notes}</p>}
 
               <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
                 <input
                   type="number"
                   min={1}
-                  placeholder="Dein Preis (EUR)"
+                  placeholder={tx.yourPrice}
                   value={priceByRequest[request.id] || ''}
                   onChange={(e) => setPriceByRequest((p) => ({ ...p, [request.id]: e.target.value }))}
                   className="rounded-lg border border-gray-300 px-3 py-2.5"
                 />
                 <input
                   type="text"
-                  placeholder="Nachricht (optional)"
+                  placeholder={tx.optionalMessage}
                   value={messageByRequest[request.id] || ''}
                   onChange={(e) => setMessageByRequest((p) => ({ ...p, [request.id]: e.target.value }))}
                   className="rounded-lg border border-gray-300 px-3 py-2.5 md:col-span-2"
@@ -790,7 +826,7 @@ export default function VendorPortfolio() {
                 onClick={() => applyOffer(request.id)}
                 className="mt-3 rounded-lg bg-purple-600 text-white px-4 py-2.5 hover:bg-purple-700"
               >
-                Auf Anfrage bewerben
+                {tx.sendOffer}
               </button>
             </div>
           ))}
@@ -799,21 +835,26 @@ export default function VendorPortfolio() {
         <div className="space-y-4">
           <h2 className="text-2xl font-semibold text-gray-900">{tx.myOffers}</h2>
           {offersLoading && (
-            <div className="bg-white rounded-xl border border-gray-200 p-6 text-center text-gray-600">Lade deine Angebote...</div>
+            <div className="bg-white rounded-xl border border-gray-200 p-6 text-center text-gray-600">{tx.loadingOffers}</div>
           )}
           {!offersLoading && myOffers.length === 0 && (
-            <div className="bg-white rounded-xl border border-gray-200 p-6 text-center text-gray-600">Noch keine gesendeten Angebote gefunden.</div>
+            <div className="bg-white rounded-xl border border-gray-200 p-6 text-center text-gray-600">{tx.noOffersYet}</div>
           )}
           {myOffers.map((offer) => (
             <div key={offer.id} className="bg-white rounded-xl border border-gray-200 p-6">
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <p className="font-medium text-gray-900">{offer.request.id}</p>
-                <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-700">{offer.status}</span>
+                <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-700">{getOfferStatusLabel(offer.status)}</span>
               </div>
               <p className="text-sm text-gray-700 mt-2">
-                Anfrage-Status: {offer.request.status} | Dein Preis: EUR {offer.price.toLocaleString()}
+                {tx.requestStatus}: {offer.request.status} | {tx.yourPriceLabel}: EUR {offer.price.toLocaleString()}
               </p>
-              <p className="text-sm text-gray-600 mt-1">Zahlung: {offer.paymentStatus}</p>
+              <p className="text-sm text-gray-600 mt-1">{tx.payment}: {getPaymentStatusLabel(offer.paymentStatus)}</p>
+              {offer.status === 'accepted' ? (
+                <p className="mt-2 text-xs text-green-700">{tx.customerCanPay}</p>
+              ) : (
+                <p className="mt-2 text-xs text-gray-600">{tx.waitingCustomerDecision}</p>
+              )}
             </div>
           ))}
         </div>
