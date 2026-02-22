@@ -352,6 +352,17 @@ export function loginVendorWithGoogle(idToken: string) {
   }>;
 }
 
+export function loginVendorWithPassword(payload: { email: string; password: string }) {
+  return request('/api/auth/vendor/login', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }) as Promise<{
+    token: string;
+    role: 'vendor';
+    user: { id: string; name: string; email: string; status?: string };
+  }>;
+}
+
 export function loginCustomerWithGoogle(idToken: string) {
   return request('/api/auth/google/customer/login', {
     method: 'POST',

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useLanguage } from '../context/LanguageContext';
-import { loginCustomerWithGoogle, loginVendorWithGoogle } from '../utils/api';
+import { loginCustomerWithGoogle, loginVendorWithGoogle, loginVendorWithPassword } from '../utils/api';
 import { getCurrentUser, setCurrentUser } from '../utils/auth';
 
 type GoogleCredentialResponse = { credential?: string };
@@ -27,6 +27,8 @@ export default function Login() {
   const navigate = useNavigate();
   const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
   const [googleLoading, setGoogleLoading] = useState<'customer' | 'vendor' | ''>('');
+  const [vendorLoginLoading, setVendorLoginLoading] = useState(false);
+  const [vendorLogin, setVendorLogin] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -96,6 +98,28 @@ export default function Login() {
     });
   };
 
+  const signInVendorWithPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!vendorLogin.email.trim() || !vendorLogin.password) {
+      setError('Vendor email and password are required.');
+      return;
+    }
+    setError('');
+    setVendorLoginLoading(true);
+    try {
+      const data = await loginVendorWithPassword({
+        email: vendorLogin.email.trim(),
+        password: vendorLogin.password,
+      });
+      setCurrentUser(data);
+      navigate('/vendor-portfolio');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Vendor login failed.');
+    } finally {
+      setVendorLoginLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 py-6 sm:py-12">
       <div className="container mx-auto px-4 max-w-md">
@@ -132,9 +156,33 @@ export default function Login() {
               <div className="w-full border-t border-gray-200" />
             </div>
             <div className="relative flex justify-center">
-              <span className="bg-white px-3 text-xs text-gray-500">Google-only Login aktiviert</span>
+              <span className="bg-white px-3 text-xs text-gray-500">Vendor test login</span>
             </div>
           </div>
+          <form onSubmit={signInVendorWithPassword} className="space-y-2 mb-4">
+            <input
+              type="email"
+              placeholder="Vendor email"
+              value={vendorLogin.email}
+              onChange={(e) => setVendorLogin((prev) => ({ ...prev, email: e.target.value }))}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
+            />
+            <input
+              type="password"
+              placeholder="Vendor password"
+              value={vendorLogin.password}
+              onChange={(e) => setVendorLogin((prev) => ({ ...prev, password: e.target.value }))}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
+            />
+            <button
+              type="submit"
+              disabled={vendorLoginLoading || googleLoading !== ''}
+              className="w-full rounded-lg bg-gray-900 text-white py-2.5 font-medium hover:bg-gray-800 disabled:bg-gray-400"
+            >
+              {vendorLoginLoading ? 'Signing in...' : 'Vendor test login (email/password)'}
+            </button>
+            <p className="text-xs text-gray-500">Demo vendors from admin seed use password: Vendor123!</p>
+          </form>
           {error && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
           )}

@@ -1948,6 +1948,32 @@ createServer(async (req, res) => {
       });
     }
 
+    if (req.method === 'POST' && path === '/api/auth/vendor/login') {
+      if (enforceRateLimit(req, res, 'auth')) return;
+      const body = await readBody(req);
+      const email = String(body?.email || '').trim();
+      const password = String(body?.password || '');
+      if (!email || !password) return sendJson(res, 400, { error: 'Missing credentials' });
+
+      const vendor = await prisma.vendorApplication.findFirst({
+        where: { email: { equals: email, mode: 'insensitive' } },
+      });
+      if (!vendor) return sendJson(res, 404, { error: 'No vendor account found for this email' });
+
+      const { user } = await prisma.$transaction(async (tx) => syncVendorProfileActivationStatus(tx, vendor));
+      const validPassword =
+        String(user.password || '') === password
+        || String(user.passwordHash || '') === password
+        || String(vendor.password || '') === password;
+      if (!validPassword) return sendJson(res, 401, { error: 'Invalid vendor credentials' });
+
+      return sendJson(res, 200, {
+        token: signUserToken(user),
+        role: 'vendor',
+        user: { id: vendor.id, name: vendor.businessName, email: vendor.email, status: vendor.status },
+      });
+    }
+
     if (req.method === 'POST' && path === '/api/uploads/vendor-document-url') {
       if (!r2Client || !R2_BUCKET_NAME) {
         return sendJson(res, 400, { error: 'R2 is not configured' });
