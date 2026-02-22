@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { ArrowRight, Camera, Music, Palette, Search, ShoppingCart, SlidersHorizontal, Sparkles, Trash2, Utensils } from 'lucide-react';
 import { services, type Service } from '../data/mockData';
 import { useLanguage } from '../context/LanguageContext';
@@ -47,6 +47,7 @@ const categoryConfig: Array<{
 export default function Services() {
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { cart, toggleService, removeService, hasService, total } = useCart();
   const [category, setCategory] = useState<CategoryFilter>('all');
   const [search, setSearch] = useState('');
@@ -93,6 +94,15 @@ export default function Services() {
 
   const safeMaxPrice = Math.max(maxProviderPrice, 1);
   const [maxPrice, setMaxPrice] = useState(safeMaxPrice);
+
+  useEffect(() => {
+    const urlCategory = String(searchParams.get('category') || '').trim().toLowerCase();
+    if (!urlCategory) return;
+    const allowed: CategoryFilter[] = ['all', 'dj', 'catering', 'makeup', 'decorations', 'photography'];
+    if (allowed.includes(urlCategory as CategoryFilter)) {
+      setCategory(urlCategory as CategoryFilter);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     getPublicVendorPosts()

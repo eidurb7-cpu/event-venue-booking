@@ -59,37 +59,49 @@ export default function Home() {
           </p>
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-            <div className="bg-slate-50 border border-slate-200 p-5 sm:p-7 rounded-2xl text-center hover:border-purple-300 transition-colors">
+            <Link
+              to="/services?category=dj"
+              className="group bg-slate-50 border border-slate-200 p-5 sm:p-7 rounded-2xl text-center hover:border-purple-300 hover:bg-white transition-colors"
+            >
               <div className="bg-purple-100 w-14 h-14 rounded-xl flex items-center justify-center mx-auto mb-3">
                 <Music className="size-7 text-purple-600" />
               </div>
               <h3 className="font-semibold text-slate-900 mb-1">{t('home.categories.dj')}</h3>
               <p className="text-slate-500 text-sm">{t('home.categories.vendors', { count: 120 })}</p>
-            </div>
+            </Link>
 
-            <div className="bg-slate-50 border border-slate-200 p-5 sm:p-7 rounded-2xl text-center hover:border-purple-300 transition-colors">
+            <Link
+              to="/services?category=photography"
+              className="group bg-slate-50 border border-slate-200 p-5 sm:p-7 rounded-2xl text-center hover:border-purple-300 hover:bg-white transition-colors"
+            >
               <div className="bg-purple-100 w-14 h-14 rounded-xl flex items-center justify-center mx-auto mb-3">
                 <Camera className="size-7 text-purple-600" />
               </div>
               <h3 className="font-semibold text-slate-900 mb-1">{t('home.categories.photo')}</h3>
               <p className="text-slate-500 text-sm">{t('home.categories.vendors', { count: 85 })}</p>
-            </div>
+            </Link>
 
-            <div className="bg-slate-50 border border-slate-200 p-5 sm:p-7 rounded-2xl text-center hover:border-purple-300 transition-colors">
+            <Link
+              to="/services?category=catering"
+              className="group bg-slate-50 border border-slate-200 p-5 sm:p-7 rounded-2xl text-center hover:border-purple-300 hover:bg-white transition-colors"
+            >
               <div className="bg-purple-100 w-14 h-14 rounded-xl flex items-center justify-center mx-auto mb-3">
                 <Utensils className="size-7 text-purple-600" />
               </div>
               <h3 className="font-semibold text-slate-900 mb-1">{t('home.categories.catering')}</h3>
               <p className="text-slate-500 text-sm">{t('home.categories.vendors', { count: 60 })}</p>
-            </div>
+            </Link>
 
-            <div className="bg-slate-50 border border-slate-200 p-5 sm:p-7 rounded-2xl text-center hover:border-purple-300 transition-colors">
+            <Link
+              to="/services?category=decorations"
+              className="group bg-slate-50 border border-slate-200 p-5 sm:p-7 rounded-2xl text-center hover:border-purple-300 hover:bg-white transition-colors"
+            >
               <div className="bg-purple-100 w-14 h-14 rounded-xl flex items-center justify-center mx-auto mb-3">
                 <Palette className="size-7 text-purple-600" />
               </div>
               <h3 className="font-semibold text-slate-900 mb-1">{t('home.categories.decoration')}</h3>
               <p className="text-slate-500 text-sm">{t('home.categories.vendors', { count: 45 })}</p>
-            </div>
+            </Link>
           </div>
         </div>
       </section>

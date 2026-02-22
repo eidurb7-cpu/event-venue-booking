@@ -1,4 +1,4 @@
-import { Link, useNavigate } from 'react-router';
+import { useNavigate } from 'react-router';
 import { ArrowRight, ShoppingCart, Trash2 } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { getCurrentUser } from '../utils/auth';
@@ -306,9 +306,16 @@ export default function Cart() {
               </button>
             </div>
           ) : (
-            <p className="text-sm text-gray-600">
-              No venue selected. <Link to="/venues" className="text-purple-700 hover:underline">Browse venues</Link>.
-            </p>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <p className="text-sm text-gray-600">No venue selected.</p>
+              <button
+                type="button"
+                onClick={() => navigate('/venues')}
+                className="inline-flex items-center justify-center rounded-lg border border-purple-300 bg-white px-4 py-2.5 text-sm font-semibold text-purple-700 hover:bg-purple-50"
+              >
+                Browse venues
+              </button>
+            </div>
           )}
         </section>
 
@@ -320,9 +327,16 @@ export default function Cart() {
             </p>
           </div>
           {cart.services.length === 0 ? (
-            <p className="text-sm text-gray-600">
-              No services selected. <Link to="/services" className="text-purple-700 hover:underline">Browse services</Link>.
-            </p>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <p className="text-sm text-gray-600">No services selected.</p>
+              <button
+                type="button"
+                onClick={() => navigate('/services')}
+                className="inline-flex items-center justify-center rounded-lg border border-purple-300 bg-white px-4 py-2.5 text-sm font-semibold text-purple-700 hover:bg-purple-50"
+              >
+                Browse services
+              </button>
+            </div>
           ) : (
             <div className="space-y-2">
               {cart.services.map((service) => (

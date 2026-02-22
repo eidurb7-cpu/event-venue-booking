@@ -4,6 +4,8 @@ import { ServiceRequest, createStripeCheckoutSession, getCustomerProfile, getCus
 import { getCurrentUser } from '../utils/auth';
 import { useLanguage } from '../context/LanguageContext';
 
+const REQUEST_GUARD_MS = 12000;
+
 export default function CustomerPortfolio() {
   const location = useLocation();
   const focusRequestId = new URLSearchParams(location.search).get('requestId') || '';
@@ -58,6 +60,18 @@ export default function CustomerPortfolio() {
     address: '',
   });
 
+  async function withGuard<T>(promise: Promise<T>, message: string): Promise<T> {
+    let timeoutId: number | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = window.setTimeout(() => reject(new Error(message)), REQUEST_GUARD_MS);
+    });
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      if (typeof timeoutId === 'number') window.clearTimeout(timeoutId);
+    }
+  }
+
   useEffect(() => {
     const current = getCurrentUser();
     if (!current) return;
@@ -79,7 +93,10 @@ export default function CustomerPortfolio() {
     setLoading(true);
     setError('');
     try {
-      const data = await getCustomerRequests(email.trim());
+      const data = await withGuard(
+        getCustomerRequests(email.trim()),
+        'API response timeout while loading requests. Please try again.',
+      );
       setRequests(data.requests);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Fehler beim Laden der Anfragen.');
@@ -90,7 +107,10 @@ export default function CustomerPortfolio() {
 
   const loadProfile = async () => {
     try {
-      const data = await getCustomerProfile();
+      const data = await withGuard(
+        getCustomerProfile(),
+        'API response timeout while loading customer details. Please refresh.',
+      );
       setProfileForm({
         name: data.profile.name || '',
         phone: data.profile.phone || '',
@@ -110,11 +130,14 @@ export default function CustomerPortfolio() {
     setError('');
     setProfileMessage('');
     try {
-      const updated = await updateCustomerProfile({
-        name: profileForm.name.trim(),
-        phone: profileForm.phone.trim(),
-        address: profileForm.address.trim(),
-      });
+      const updated = await withGuard(
+        updateCustomerProfile({
+          name: profileForm.name.trim(),
+          phone: profileForm.phone.trim(),
+          address: profileForm.address.trim(),
+        }),
+        'API response timeout while saving details. Please try again.',
+      );
       setProfileForm({
         name: updated.profile.name || '',
         phone: updated.profile.phone || '',
@@ -131,7 +154,10 @@ export default function CustomerPortfolio() {
   const decide = async (requestId: string, offerId: string, status: 'accepted' | 'declined' | 'ignored') => {
     setError('');
     try {
-      await setOfferStatus(requestId, offerId, status, { customerEmail });
+      await withGuard(
+        setOfferStatus(requestId, offerId, status, { customerEmail }),
+        'API response timeout while updating offer. Please retry.',
+      );
       await loadRequests(customerEmail);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Fehler beim Aktualisieren des Angebots.');
@@ -142,13 +168,16 @@ export default function CustomerPortfolio() {
     if (!customerEmail.trim()) return;
     setError('');
     try {
-      const data = await createStripeCheckoutSession({
-        requestId,
-        offerId,
-        customerEmail: customerEmail.trim(),
-        successUrl: `${window.location.origin}/customer-portfolio?payment=success`,
-        cancelUrl: `${window.location.origin}/customer-portfolio?payment=cancelled`,
-      });
+      const data = await withGuard(
+        createStripeCheckoutSession({
+          requestId,
+          offerId,
+          customerEmail: customerEmail.trim(),
+          successUrl: `${window.location.origin}/customer-portfolio?payment=success`,
+          cancelUrl: `${window.location.origin}/customer-portfolio?payment=cancelled`,
+        }),
+        'API response timeout while starting payment. Please retry.',
+      );
       if (data.url) {
         window.location.href = data.url;
       } else {
