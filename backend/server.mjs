@@ -1735,8 +1735,18 @@ createServer(async (req, res) => {
       const cart = body?.cart || {};
       const venue = cart?.venue || null;
       const services = Array.isArray(cart?.services) ? cart.services : [];
+      const customer = body?.customer || {};
       const successUrl = normalizeOptionalString(body?.successUrl, 500) || `${FRONTEND_BASE_URL}/checkout/success`;
       const cancelUrl = normalizeOptionalString(body?.cancelUrl, 500) || `${FRONTEND_BASE_URL}/cart`;
+      const customerEmail = normalizeOptionalString(customer?.email, 320);
+      const customerName = normalizeOptionalString(customer?.name, 120);
+      const customerPhone = normalizeOptionalString(customer?.phone, 60);
+      const customerAddress = normalizeOptionalString(customer?.address, 300);
+      const customerCity = normalizeOptionalString(customer?.city, 120);
+      const customerPostalCode = normalizeOptionalString(customer?.postalCode, 32);
+      const eventType = normalizeOptionalString(customer?.eventType, 64);
+      const guestCount = normalizeOptionalString(customer?.guestCount, 32);
+      const preferredContactMethod = normalizeOptionalString(customer?.preferredContactMethod, 32);
 
       if (!venue || !venue.id || !Number.isFinite(Number(venue.price)) || Number(venue.price) <= 0) {
         return sendJson(res, 400, { error: 'Missing or invalid venue in cart' });
@@ -1772,6 +1782,7 @@ createServer(async (req, res) => {
 
       const session = await stripe.checkout.sessions.create({
         mode: 'payment',
+        ...(customerEmail ? { customer_email: customerEmail } : {}),
         success_url: successUrl,
         cancel_url: cancelUrl,
         line_items: lineItems,
@@ -1779,6 +1790,15 @@ createServer(async (req, res) => {
           source: 'web_cart',
           venueId: String(venue.id),
           services: JSON.stringify(services.map((s) => s?.id).filter(Boolean)).slice(0, 500),
+          customerName: customerName || '',
+          customerEmail: customerEmail || '',
+          customerPhone: customerPhone || '',
+          customerAddress: customerAddress || '',
+          customerCity: customerCity || '',
+          customerPostalCode: customerPostalCode || '',
+          eventType: eventType || '',
+          guestCount: guestCount || '',
+          preferredContactMethod: preferredContactMethod || '',
         },
       });
 

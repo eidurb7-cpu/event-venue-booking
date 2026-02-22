@@ -33,6 +33,17 @@ export default function Cart() {
     email: '',
     phone: '',
     address: '',
+    city: '',
+    postalCode: '',
+    altContactName: '',
+    altPhone: '',
+    preferredContactMethod: 'email',
+    eventTime: '',
+    arrivalTime: '',
+    eventType: '',
+    guestCount: '',
+    disputeNotes: '',
+    termsAccepted: false,
     notes: '',
   });
   const [sentServiceRequests, setSentServiceRequests] = useState<SentServiceRequest[]>([]);
@@ -210,7 +221,21 @@ export default function Cart() {
             services: [],
             currency: cart.currency,
           },
-          customer: bookingForm,
+          customer: {
+            ...bookingForm,
+            name: bookingForm.name.trim(),
+            email: bookingForm.email.trim(),
+            phone: bookingForm.phone.trim(),
+            address: bookingForm.address.trim(),
+            city: bookingForm.city.trim(),
+            postalCode: bookingForm.postalCode.trim(),
+            altContactName: bookingForm.altContactName.trim(),
+            altPhone: bookingForm.altPhone.trim(),
+            eventType: bookingForm.eventType.trim(),
+            guestCount: bookingForm.guestCount.trim(),
+            disputeNotes: bookingForm.disputeNotes.trim(),
+            notes: bookingForm.notes.trim(),
+          },
           successUrl: `${FRONTEND_BASE_URL}/checkout/success`,
           cancelUrl: `${FRONTEND_BASE_URL}/cart`,
         }),
@@ -264,6 +289,22 @@ export default function Cart() {
     }
     if (!bookingForm.address.trim()) {
       setUiError('Please enter billing address before checkout.');
+      return;
+    }
+    if (!bookingForm.city.trim() || !bookingForm.postalCode.trim()) {
+      setUiError('Please enter city and postal code before checkout.');
+      return;
+    }
+    if (!bookingForm.eventType.trim()) {
+      setUiError('Please select event type before checkout.');
+      return;
+    }
+    if (!bookingForm.guestCount.trim() || Number(bookingForm.guestCount) <= 0) {
+      setUiError('Please enter valid guest count before checkout.');
+      return;
+    }
+    if (!bookingForm.termsAccepted) {
+      setUiError('Please accept the terms before checkout.');
       return;
     }
     try {
@@ -513,6 +554,7 @@ export default function Cart() {
                 value={bookingForm.name}
                 onChange={(e) => setBookingForm((p) => ({ ...p, name: e.target.value }))}
                 className="rounded-lg border border-gray-300 px-3 py-2.5"
+                autoComplete="name"
               />
               <input
                 type="email"
@@ -521,6 +563,7 @@ export default function Cart() {
                 value={bookingForm.email}
                 onChange={(e) => setBookingForm((p) => ({ ...p, email: e.target.value }))}
                 className="rounded-lg border border-gray-300 px-3 py-2.5"
+                autoComplete="email"
               />
               <input
                 type="tel"
@@ -528,6 +571,7 @@ export default function Cart() {
                 value={bookingForm.phone}
                 onChange={(e) => setBookingForm((p) => ({ ...p, phone: e.target.value }))}
                 className="rounded-lg border border-gray-300 px-3 py-2.5"
+                autoComplete="tel"
               />
               <input
                 type="text"
@@ -535,6 +579,86 @@ export default function Cart() {
                 placeholder="Address"
                 value={bookingForm.address}
                 onChange={(e) => setBookingForm((p) => ({ ...p, address: e.target.value }))}
+                className="rounded-lg border border-gray-300 px-3 py-2.5"
+                autoComplete="street-address"
+              />
+              <input
+                type="text"
+                required
+                placeholder="City"
+                value={bookingForm.city}
+                onChange={(e) => setBookingForm((p) => ({ ...p, city: e.target.value }))}
+                className="rounded-lg border border-gray-300 px-3 py-2.5"
+                autoComplete="address-level2"
+              />
+              <input
+                type="text"
+                required
+                placeholder="Postal code"
+                value={bookingForm.postalCode}
+                onChange={(e) => setBookingForm((p) => ({ ...p, postalCode: e.target.value }))}
+                className="rounded-lg border border-gray-300 px-3 py-2.5"
+                autoComplete="postal-code"
+              />
+              <input
+                type="text"
+                placeholder="Alternative contact person"
+                value={bookingForm.altContactName}
+                onChange={(e) => setBookingForm((p) => ({ ...p, altContactName: e.target.value }))}
+                className="rounded-lg border border-gray-300 px-3 py-2.5"
+                autoComplete="name"
+              />
+              <input
+                type="tel"
+                placeholder="Alternative phone"
+                value={bookingForm.altPhone}
+                onChange={(e) => setBookingForm((p) => ({ ...p, altPhone: e.target.value }))}
+                className="rounded-lg border border-gray-300 px-3 py-2.5"
+                autoComplete="tel"
+              />
+              <select
+                value={bookingForm.preferredContactMethod}
+                onChange={(e) => setBookingForm((p) => ({ ...p, preferredContactMethod: e.target.value }))}
+                className="rounded-lg border border-gray-300 px-3 py-2.5"
+              >
+                <option value="email">Preferred contact: Email</option>
+                <option value="phone">Preferred contact: Phone</option>
+                <option value="whatsapp">Preferred contact: WhatsApp</option>
+              </select>
+              <input
+                type="time"
+                placeholder="Event time"
+                value={bookingForm.eventTime}
+                onChange={(e) => setBookingForm((p) => ({ ...p, eventTime: e.target.value }))}
+                className="rounded-lg border border-gray-300 px-3 py-2.5"
+              />
+              <input
+                type="time"
+                placeholder="Arrival time (optional)"
+                value={bookingForm.arrivalTime}
+                onChange={(e) => setBookingForm((p) => ({ ...p, arrivalTime: e.target.value }))}
+                className="rounded-lg border border-gray-300 px-3 py-2.5"
+              />
+              <select
+                required
+                value={bookingForm.eventType}
+                onChange={(e) => setBookingForm((p) => ({ ...p, eventType: e.target.value }))}
+                className="rounded-lg border border-gray-300 px-3 py-2.5"
+              >
+                <option value="">Event type</option>
+                <option value="wedding">Wedding</option>
+                <option value="birthday">Birthday</option>
+                <option value="corporate">Corporate</option>
+                <option value="private-party">Private party</option>
+                <option value="other">Other</option>
+              </select>
+              <input
+                type="number"
+                min={1}
+                required
+                placeholder="Guest count"
+                value={bookingForm.guestCount}
+                onChange={(e) => setBookingForm((p) => ({ ...p, guestCount: e.target.value }))}
                 className="rounded-lg border border-gray-300 px-3 py-2.5"
               />
               <input
@@ -544,7 +668,22 @@ export default function Cart() {
                 onChange={(e) => setBookingForm((p) => ({ ...p, notes: e.target.value }))}
                 className="rounded-lg border border-gray-300 px-3 py-2.5"
               />
+              <textarea
+                placeholder="Additional dispute notes (optional)"
+                value={bookingForm.disputeNotes}
+                onChange={(e) => setBookingForm((p) => ({ ...p, disputeNotes: e.target.value }))}
+                className="rounded-lg border border-gray-300 px-3 py-2.5 md:col-span-2 min-h-24"
+              />
             </div>
+            <label className="mt-2 inline-flex items-start gap-2 text-xs text-gray-700">
+              <input
+                type="checkbox"
+                checked={bookingForm.termsAccepted}
+                onChange={(e) => setBookingForm((p) => ({ ...p, termsAccepted: e.target.checked }))}
+                className="mt-0.5"
+              />
+              <span>I confirm these details are accurate and can be used for payment dispute handling.</span>
+            </label>
           </div>
           <div className="mt-4 flex flex-col sm:flex-row gap-2">
             <button
