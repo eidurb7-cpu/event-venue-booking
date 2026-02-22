@@ -71,6 +71,10 @@ export default function Cart() {
     setUiError(message);
     toast.error(message);
   };
+  const getMissingVenueMessage = () =>
+    cart.services.length > 0
+      ? 'Services are awaiting vendor approval.'
+      : 'Please select a venue before checkout.';
 
   useEffect(() => {
     try {
@@ -220,7 +224,7 @@ export default function Cart() {
       return;
     }
     if (!cart.venue) {
-      showValidationMessage('Please select a venue before checkout.');
+      showValidationMessage(getMissingVenueMessage());
       return;
     }
     if (!import.meta.env.VITE_API_BASE_URL && !API_BASE) {
@@ -305,7 +309,7 @@ export default function Cart() {
     setUiError('');
     const raiseValidation = (message: string) => showValidationMessage(message);
     if (!cart.venue) {
-      raiseValidation('Please select a venue before checkout.');
+      raiseValidation(getMissingVenueMessage());
       return;
     }
     if (!bookingForm.name.trim() || !bookingForm.email.trim()) {
@@ -347,7 +351,7 @@ export default function Cart() {
       return;
     }
     if (!cart.venue) {
-      showValidationMessage('Please select a venue first.');
+      showValidationMessage(getMissingVenueMessage());
       return;
     }
     setShowCheckoutForm((prev) => !prev);
