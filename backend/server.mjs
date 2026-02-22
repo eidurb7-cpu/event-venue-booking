@@ -1236,18 +1236,35 @@ async function ensureVendorIdentityFromApplication(tx, application) {
   });
 
   if (!user) {
-    const generatedPassword = application.password || `vendor_${randomUUID()}`;
-    user = await tx.user.create({
-      data: {
-        name: application.businessName,
-        fullName: application.businessName,
-        email: application.email,
-        password: generatedPassword,
-        passwordHash: generatedPassword,
-        googleSub: application.googleSub || null,
-        role: 'vendor',
-      },
+    const existingUser = await tx.user.findFirst({
+      where: { email: { equals: application.email, mode: 'insensitive' } },
+      select: { id: true, role: true },
     });
+    if (existingUser && existingUser.role !== 'vendor') {
+      throw httpError(
+        409,
+        `This email is already registered as ${existingUser.role}. Vendor account requires a dedicated email.`,
+      );
+    }
+    const generatedPassword = application.password || `vendor_${randomUUID()}`;
+    try {
+      user = await tx.user.create({
+        data: {
+          name: application.businessName,
+          fullName: application.businessName,
+          email: application.email,
+          password: generatedPassword,
+          passwordHash: generatedPassword,
+          googleSub: application.googleSub || null,
+          role: 'vendor',
+        },
+      });
+    } catch (error) {
+      if (String(error?.code || '') === 'P2002') {
+        throw httpError(409, 'Email already exists and cannot be used for vendor identity creation.');
+      }
+      throw error;
+    }
   } else if (!user.googleSub && application.googleSub) {
     user = await tx.user.update({
       where: { id: user.id },
@@ -1843,18 +1860,36 @@ createServer(async (req, res) => {
       });
 
       if (!customer) {
-        const generatedPassword = `google_${randomUUID()}`;
-        customer = await prisma.user.create({
-          data: {
-            name: profile.name || profile.email.split('@')[0],
-            fullName: profile.name || profile.email.split('@')[0],
-            email: profile.email,
-            password: generatedPassword,
-            passwordHash: generatedPassword,
-            googleSub: profile.sub,
-            role: 'customer',
-          },
+        const existingUser = await prisma.user.findFirst({
+          where: { email: { equals: profile.email, mode: 'insensitive' } },
+          select: { role: true },
         });
+        if (existingUser && existingUser.role !== 'customer') {
+          return sendJson(res, 409, {
+            error: `This email is already registered as ${existingUser.role}. Please use the correct login flow for that account.`,
+          });
+        }
+        const generatedPassword = `google_${randomUUID()}`;
+        try {
+          customer = await prisma.user.create({
+            data: {
+              name: profile.name || profile.email.split('@')[0],
+              fullName: profile.name || profile.email.split('@')[0],
+              email: profile.email,
+              password: generatedPassword,
+              passwordHash: generatedPassword,
+              googleSub: profile.sub,
+              role: 'customer',
+            },
+          });
+        } catch (error) {
+          if (String(error?.code || '') === 'P2002') {
+            return sendJson(res, 409, {
+              error: 'Email is already in use. Please login with the account type previously registered for this email.',
+            });
+          }
+          throw error;
+        }
       } else if (!customer.googleSub) {
         customer = await prisma.user.update({
           where: { id: customer.id },
@@ -1931,7 +1966,9 @@ createServer(async (req, res) => {
         return sendJson(res, 400, { error: 'Missing required fields' });
       }
 
-      const existing = await prisma.user.findUnique({ where: { email } });
+      const existing = await prisma.user.findFirst({
+        where: { email: { equals: email, mode: 'insensitive' } },
+      });
       if (existing && existing.role === 'admin') {
         return sendJson(res, 409, { error: 'Admin user already exists for this email' });
       }
@@ -1939,16 +1976,24 @@ createServer(async (req, res) => {
         return sendJson(res, 409, { error: 'Email already used by non-admin user' });
       }
 
-      const adminUser = await prisma.user.create({
-        data: {
-          name,
-          fullName: name,
-          email,
-          password,
-          passwordHash: password,
-          role: 'admin',
-        },
-      });
+      let adminUser;
+      try {
+        adminUser = await prisma.user.create({
+          data: {
+            name,
+            fullName: name,
+            email,
+            password,
+            passwordHash: password,
+            role: 'admin',
+          },
+        });
+      } catch (error) {
+        if (String(error?.code || '') === 'P2002') {
+          return sendJson(res, 409, { error: 'Email already exists. Use a different admin email or login with existing account.' });
+        }
+        throw error;
+      }
       return sendJson(res, 201, {
         admin: {
           id: adminUser.id,
@@ -2081,7 +2126,11 @@ createServer(async (req, res) => {
 
       const existing = await prisma.vendorApplication.findUnique({ where: { email: body.email } });
       if (existing) {
-        return sendJson(res, 409, { error: 'Vendor application already exists for this email' });
+        return sendJson(res, 200, {
+          vendorApplication: existing,
+          alreadyExists: true,
+          note: 'Vendor application already exists for this email.',
+        });
       }
 
       if (body.googleSub) {
@@ -2089,7 +2138,11 @@ createServer(async (req, res) => {
           where: { googleSub: body.googleSub },
         });
         if (existingGoogle) {
-          return sendJson(res, 409, { error: 'Vendor application already exists for this Google account' });
+          return sendJson(res, 200, {
+            vendorApplication: existingGoogle,
+            alreadyExists: true,
+            note: 'Vendor application already exists for this Google account.',
+          });
         }
       }
 

@@ -41,6 +41,7 @@ export default function Signup() {
   const [error, setError] = useState('');
   const [googleLinked, setGoogleLinked] = useState(false);
   const [customerGoogleLoading, setCustomerGoogleLoading] = useState(false);
+  const [submitInfo, setSubmitInfo] = useState('');
 
   const [vendorForm, setVendorForm] = useState({
     businessName: '',
@@ -195,17 +196,23 @@ export default function Signup() {
   const onVendorSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSubmitInfo('');
     if (!vendorForm.googleSub) {
       setError('Bitte zuerst Google-Konto als Vendor verknuepfen.');
       return;
     }
     setIsSubmitting(true);
     try {
-      await signupVendor({
+      const result = await signupVendor({
         ...vendorForm,
         password: undefined,
-      });
+      }) as { alreadyExists?: boolean; note?: string };
       setSubmitted(true);
+      if (result?.alreadyExists) {
+        setSubmitInfo('Deine Vendor-Anfrage ist bereits vorhanden und wartet auf Admin-Pruefung.');
+      } else {
+        setSubmitInfo('Anfrage gesendet. Dein Vendor-Konto wartet jetzt auf Admin-Freigabe.');
+      }
       setGoogleLinked(false);
       setVendorForm({
         businessName: '',
@@ -476,7 +483,7 @@ export default function Signup() {
 
           {submitted && (
             <div className="mt-5 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-              Anfrage gesendet. Dein Vendor-Konto wartet jetzt auf Admin-Freigabe.
+              {submitInfo || 'Anfrage gesendet. Dein Vendor-Konto wartet jetzt auf Admin-Freigabe.'}
             </div>
           )}
 

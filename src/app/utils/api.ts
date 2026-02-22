@@ -1,5 +1,6 @@
 import { getUserToken } from './auth';
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
+const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 90000);
 
 export type ServiceRequestStatus = 'open' | 'closed' | 'expired';
 export type VendorOfferStatus = 'pending' | 'accepted' | 'declined' | 'ignored';
@@ -257,7 +258,7 @@ export function getMe() {
 
 async function request(path: string, options: RequestInit = {}) {
   const controller = new AbortController();
-  const timeoutMs = 30000;
+  const timeoutMs = Number.isFinite(API_TIMEOUT_MS) && API_TIMEOUT_MS > 0 ? API_TIMEOUT_MS : 90000;
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
   const userToken = getUserToken();
@@ -274,7 +275,10 @@ async function request(path: string, options: RequestInit = {}) {
     });
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
-      throw new Error(`API Timeout (${timeoutMs / 1000}s). Backend antwortet nicht: ${API_BASE}`);
+      throw new Error(
+        `API Timeout (${Math.round(timeoutMs / 1000)}s). Backend antwortet nicht: ${API_BASE}. ` +
+        'Bei Render kann ein Cold Start 30-90s dauern. Bitte erneut versuchen.',
+      );
     }
     throw new Error(`API nicht erreichbar (${API_BASE}). Bitte starte den Backend-Server mit "npm run dev:api".`);
   } finally {
