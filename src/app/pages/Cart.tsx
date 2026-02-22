@@ -26,6 +26,8 @@ export default function Cart() {
   const [savingLater, setSavingLater] = useState(false);
   const [showCheckoutForm, setShowCheckoutForm] = useState(false);
   const [payNowLoading, setPayNowLoading] = useState(false);
+  const [uiError, setUiError] = useState('');
+  const [uiInfo, setUiInfo] = useState('');
   const [bookingForm, setBookingForm] = useState({
     name: '',
     email: '',
@@ -119,16 +121,18 @@ export default function Cart() {
   }
 
   async function checkout() {
+    setUiError('');
+    setUiInfo('');
     if (isBookingBlockedForRole) {
-      alert('Please use a customer account for checkout.');
+      setUiError('Please use a customer account for checkout.');
       return;
     }
     if (!cart.venue) {
-      alert('Please select a venue before checkout.');
+      setUiError('Please select a venue before checkout.');
       return;
     }
     if (!import.meta.env.VITE_API_BASE_URL && !API_BASE) {
-      alert('API URL is not configured.');
+      setUiError('API URL is not configured.');
       return;
     }
 
@@ -150,21 +154,21 @@ export default function Cart() {
         }),
       });
     } catch {
-      alert('Network error while starting checkout. Please check API/Stripe config.');
+      setUiError('Network error while starting checkout. Please check API/Stripe config.');
       setPayNowLoading(false);
       return;
     }
 
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      alert(`Checkout error: ${body?.error || res.statusText}`);
+      setUiError(`Checkout error: ${body?.error || res.statusText}`);
       setPayNowLoading(false);
       return;
     }
 
     const data = (await res.json()) as { url?: string | null };
     if (!data?.url) {
-      alert('Checkout URL missing. Please try again.');
+      setUiError('Checkout URL missing. Please try again.');
       setPayNowLoading(false);
       return;
     }
@@ -173,25 +177,28 @@ export default function Cart() {
 
   async function submitCompleteBookingForm(e: React.FormEvent) {
     e.preventDefault();
+    setUiError('');
     if (!bookingForm.name.trim() || !bookingForm.email.trim()) {
-      alert('Please enter name and email.');
+      setUiError('Please enter name and email.');
       return;
     }
     await checkout();
   }
 
   async function sendRequestToVendors() {
+    setUiError('');
+    setUiInfo('');
     if (!currentUser || currentUser.role !== 'customer' || !currentUser.user.email) {
-      alert('Please login with a customer account first.');
+      setUiError('Please login with a customer account first.');
       navigate('/login');
       return;
     }
     if (cart.services.length === 0) {
-      alert('Please add at least one service before sending a request.');
+      setUiError('Please add at least one service before sending a request.');
       return;
     }
     if (!bookingForm.name.trim() || !bookingForm.email.trim()) {
-      alert('Please enter client name and email first.');
+      setUiError('Please enter client name and email first.');
       return;
     }
 
@@ -244,19 +251,21 @@ export default function Cart() {
       });
       cart.services.forEach((service) => removeService(service.id));
       await loadCustomerRequests(currentUser.user.email);
-      alert('Service request sent. Vendors must approve before payment is available.');
+      setUiInfo('Service request sent. Vendors must approve before payment is available.');
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to send request to vendors.');
+      setUiError(err instanceof Error ? err.message : 'Failed to send request to vendors.');
     } finally {
       setRequestSending(false);
     }
   }
 
   function saveForLater() {
+    setUiError('');
+    setUiInfo('');
     setSavingLater(true);
     setTimeout(() => {
       setSavingLater(false);
-      alert('Saved. You can continue later from Cart.');
+      setUiInfo('Saved. You can continue later from Cart.');
     }, 200);
   }
 
@@ -267,6 +276,16 @@ export default function Cart() {
           <ShoppingCart className="size-7 text-purple-700" />
           <h1 className="text-3xl font-bold text-gray-900">Your Cart</h1>
         </div>
+        {uiError && (
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {uiError}
+          </div>
+        )}
+        {uiInfo && (
+          <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+            {uiInfo}
+          </div>
+        )}
 
         <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <h2 className="text-lg font-semibold text-gray-900 mb-3">Venue</h2>
