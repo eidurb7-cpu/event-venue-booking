@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import { ServiceRequest, createStripeCheckoutSession, getCustomerRequests, setOfferStatus } from '../utils/api';
 import { getCurrentUser } from '../utils/auth';
 import { useLanguage } from '../context/LanguageContext';
 
 export default function CustomerPortfolio() {
+  const location = useLocation();
+  const focusRequestId = new URLSearchParams(location.search).get('requestId') || '';
   const { language } = useLanguage();
   const isDe = language === 'de';
   const tx = {
@@ -163,7 +165,14 @@ export default function CustomerPortfolio() {
 
         <div className="space-y-5">
           {requests.map((request) => (
-            <div key={request.id} className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
+            <div
+              key={request.id}
+              className={`bg-white rounded-xl border p-4 sm:p-6 ${
+                focusRequestId && request.id === focusRequestId
+                  ? 'border-purple-400 ring-2 ring-purple-100'
+                  : 'border-gray-200'
+              }`}
+            >
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <h2 className="text-lg font-semibold text-gray-900">{request.id}</h2>
                 <span
