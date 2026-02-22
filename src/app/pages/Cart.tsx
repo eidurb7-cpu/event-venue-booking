@@ -34,6 +34,7 @@ export default function Cart() {
   });
   const [sentServiceRequests, setSentServiceRequests] = useState<SentServiceRequest[]>([]);
   const [customerRequests, setCustomerRequests] = useState<ServiceRequest[]>([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
   const currentUser = getCurrentUser();
   const isBookingBlockedForRole = currentUser?.role === 'vendor' || currentUser?.role === 'admin';
   const servicesTotal = cart.services.reduce((sum, service) => sum + service.price, 0);
@@ -85,23 +86,22 @@ export default function Cart() {
 
   async function loadCustomerRequests(email: string) {
     if (!email.trim()) return;
+    setRequestsLoading(true);
     try {
       const data = await getCustomerRequests(email.trim());
       setCustomerRequests(Array.isArray(data.requests) ? data.requests : []);
     } catch {
-      setCustomerRequests([]);
+      // Keep previous request snapshot to avoid status flicker.
+    } finally {
+      setRequestsLoading(false);
     }
   }
 
   function getServiceRequestStatusLabel(service: SentServiceRequest): string {
-    const byId = service.requestId
-      ? customerRequests.find((request) => request.id === service.requestId)
+    if (requestsLoading) return 'Request sent - pending vendor approval';
+    const request = service.requestId
+      ? customerRequests.find((item) => item.id === service.requestId)
       : null;
-    const fallbackMatch = customerRequests.find((request) => {
-      const notes = String(request.notes || '').toLowerCase();
-      return notes.includes(service.title.toLowerCase());
-    });
-    const request = byId || fallbackMatch;
 
     if (!request) return 'Request sent - pending vendor approval';
     if (request.status === 'expired') return 'Expired - no payment possible';
