@@ -2,6 +2,7 @@ import { Link, useNavigate } from 'react-router';
 import { ArrowRight, ShoppingCart, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCart } from '../context/CartContext';
+import { useLanguage } from '../context/LanguageContext';
 import { getCurrentUser } from '../utils/auth';
 import { ServiceRequest, cancelCustomerRequest, createRequest, getCustomerProfile, getCustomerRequests, updateCustomerProfile } from '../utils/api';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -21,6 +22,8 @@ type SentServiceRequest = {
 };
 
 export default function Cart() {
+  const { language } = useLanguage();
+  const isDe = language === 'de';
   const navigate = useNavigate();
   const { cart, total, removeService, clearCart, clearVenue } = useCart();
   const [requestSending, setRequestSending] = useState(false);
@@ -73,8 +76,8 @@ export default function Cart() {
   };
   const getMissingVenueMessage = () =>
     cart.services.length > 0
-      ? 'Services are awaiting vendor approval.'
-      : 'Please select a venue before checkout.';
+      ? (isDe ? 'Services warten auf Vendor-Freigabe.' : 'Services are awaiting vendor approval.')
+      : (isDe ? 'Bitte waehle zuerst eine Location aus.' : 'Please select a venue before checkout.');
 
   useEffect(() => {
     try {
