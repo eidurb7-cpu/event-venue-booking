@@ -166,6 +166,32 @@ model VendorApplication {
   posts           VendorPost[]
   inquiries       VendorInquiry[]
   vendorProfile   VendorProfile?
+  contractSignatures VendorContractSignature[]
+}
+
+model VendorContractSignature {
+  id                String            @id @default(cuid())
+  vendorApplicationId String
+  vendorApplication VendorApplication @relation(fields: [vendorApplicationId], references: [id], onDelete: Cascade)
+  provider          String            @default("external")
+  externalEnvelopeId String?
+  status            String            @default("sent")
+  signingUrl        String?
+  contractVersion   String?
+  sentAt            DateTime?
+  signedAt          DateTime?
+  declinedAt        DateTime?
+  voidedAt          DateTime?
+  documentUrl       String?
+  auditTrailUrl     String?
+  lastEventAt       DateTime?
+  rawPayload        Json?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@unique([provider, externalEnvelopeId])
+  @@index([vendorApplicationId, createdAt])
+  @@index([vendorApplicationId, status])
 }
 
 model ServiceRequest {

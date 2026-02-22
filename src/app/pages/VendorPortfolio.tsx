@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router';
 import {
   ServiceRequest,
   VendorCompliance,
+  VendorContractSignature,
   StripeConnectStatus,
   VendorApplication,
   VendorOfferWithRequest,
@@ -49,6 +50,7 @@ export default function VendorPortfolio() {
   const [manualName, setManualName] = useState('');
   const [vendorProfile, setVendorProfile] = useState<VendorApplication | null>(null);
   const [vendorCompliance, setVendorCompliance] = useState<VendorCompliance | null>(null);
+  const [contractSignature, setContractSignature] = useState<VendorContractSignature | null>(null);
   const [openRequests, setOpenRequests] = useState<ServiceRequest[]>([]);
   const [myOffers, setMyOffers] = useState<VendorOfferWithRequest[]>([]);
   const [posts, setPosts] = useState<VendorPost[]>([]);
@@ -119,11 +121,13 @@ export default function VendorPortfolio() {
   const loadVendorComplianceStatus = async (email: string) => {
     if (!email.trim()) {
       setVendorCompliance(null);
+      setContractSignature(null);
       return;
     }
     try {
       const data = await getVendorCompliance(email.trim());
       setVendorCompliance(data.compliance);
+      setContractSignature(data.signature || null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Fehler beim Laden des Compliance-Status.');
     }
@@ -426,6 +430,11 @@ export default function VendorPortfolio() {
             <div className={`rounded-lg border px-3 py-2 ${vendorCompliance?.contractAccepted ? 'border-green-200 bg-green-50 text-green-700' : 'border-yellow-200 bg-yellow-50 text-yellow-800'}`}>
               {vendorCompliance?.contractAccepted ? `Contract accepted (${vendorCompliance.contractVersion || 'v1.0'})` : 'Vendor contract not accepted'}
             </div>
+            <div className={`rounded-lg border px-3 py-2 ${contractSignature?.status === 'completed' ? 'border-green-200 bg-green-50 text-green-700' : 'border-gray-200 bg-gray-50 text-gray-700'}`}>
+              {contractSignature
+                ? `E-sign status: ${contractSignature.status}${contractSignature.provider ? ` (${contractSignature.provider})` : ''}`
+                : 'E-sign status: not started'}
+            </div>
             <div className={`rounded-lg border px-3 py-2 ${vendorCompliance?.trainingCompleted ? 'border-green-200 bg-green-50 text-green-700' : 'border-yellow-200 bg-yellow-50 text-yellow-800'}`}>
               {vendorCompliance?.trainingCompleted ? 'Training completed' : 'Training not completed'}
             </div>
@@ -460,6 +469,16 @@ export default function VendorPortfolio() {
             >
               {vendorCompliance?.contractAccepted ? 'Contract accepted' : (complianceLoading ? 'Saving...' : 'Accept contract')}
             </button>
+            {contractSignature?.signingUrl && (
+              <a
+                href={contractSignature.signingUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50"
+              >
+                Open e-sign link
+              </a>
+            )}
             <button
               type="button"
               disabled={Boolean(vendorCompliance?.trainingCompleted) || complianceLoading || !vendorEmail}

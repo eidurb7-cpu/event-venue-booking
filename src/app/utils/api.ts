@@ -94,6 +94,24 @@ export interface VendorCompliance {
   canPublish: boolean;
 }
 
+export interface VendorContractSignature {
+  id: string;
+  provider: string;
+  externalEnvelopeId?: string | null;
+  status: string;
+  signingUrl?: string | null;
+  contractVersion?: string | null;
+  sentAt?: string | null;
+  signedAt?: string | null;
+  declinedAt?: string | null;
+  voidedAt?: string | null;
+  documentUrl?: string | null;
+  auditTrailUrl?: string | null;
+  lastEventAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
 export interface ServiceCatalogItem {
   id: string;
   name: string;
@@ -464,7 +482,36 @@ export function getVendorProfile(email: string) {
 }
 
 export function getVendorCompliance(vendorEmail: string) {
-  return request(`/api/vendor/compliance?vendorEmail=${encodeURIComponent(vendorEmail)}`) as Promise<{ compliance: VendorCompliance }>;
+  return request(`/api/vendor/compliance?vendorEmail=${encodeURIComponent(vendorEmail)}`) as Promise<{
+    compliance: VendorCompliance;
+    signature?: VendorContractSignature | null;
+  }>;
+}
+
+export function getVendorContractSigningStatus(vendorEmail: string) {
+  return request(`/api/vendor/contract/signing-status?vendorEmail=${encodeURIComponent(vendorEmail)}`) as Promise<{
+    provider: string;
+    compliance: VendorCompliance;
+    signature?: VendorContractSignature | null;
+  }>;
+}
+
+export function startVendorContractSigning(payload: {
+  vendorEmail: string;
+  provider?: string;
+  externalEnvelopeId?: string;
+  signingUrl?: string;
+  contractVersion?: string;
+  status?: string;
+}) {
+  return request('/api/vendor/contract/signing/start', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }) as Promise<{
+    provider: string;
+    compliance: VendorCompliance;
+    signature: VendorContractSignature;
+  }>;
 }
 
 export function acceptVendorContract(payload: { vendorEmail: string; contractVersion?: string }) {

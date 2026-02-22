@@ -49,6 +49,8 @@ const ENABLE_LEGACY_COMPLIANCE_JSON = String(process.env.ENABLE_LEGACY_COMPLIANC
 const SERVICE_AGREEMENT_VERSION = process.env.SERVICE_AGREEMENT_VERSION || 'v1.0';
 const SERVICE_AGREEMENT_FILE = process.env.SERVICE_AGREEMENT_FILE || path.join(process.cwd(), 'backend', 'data', 'service-agreements.json');
 const ENFORCE_VENDOR_PAYOUT_READINESS = String(process.env.ENFORCE_VENDOR_PAYOUT_READINESS || 'true').toLowerCase() !== 'false';
+const CONTRACT_SIGNING_PROVIDER = process.env.CONTRACT_SIGNING_PROVIDER || 'external';
+const CONTRACT_SIGNING_WEBHOOK_SECRET = process.env.CONTRACT_SIGNING_WEBHOOK_SECRET || '';
 const DEFAULT_RESPONSE_HOURS = 48;
 const MAX_RESPONSE_HOURS = 168;
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60_000);
@@ -383,6 +385,51 @@ async function getVendorApplicationByEmail(email) {
 
 function normalizeVendorEmail(email) {
   return String(email || '').trim().toLowerCase();
+}
+
+function normalizeContractSignatureStatus(status) {
+  const value = String(status || '').trim().toLowerCase();
+  if (!value) return 'sent';
+  if (['sent', 'created', 'pending'].includes(value)) return 'sent';
+  if (['viewed', 'opened'].includes(value)) return 'viewed';
+  if (['completed', 'signed', 'completed_signed'].includes(value)) return 'completed';
+  if (['declined', 'rejected'].includes(value)) return 'declined';
+  if (['voided', 'canceled', 'cancelled', 'expired'].includes(value)) return 'voided';
+  return value;
+}
+
+function mapContractSignatureRow(row) {
+  return {
+    id: row.id,
+    provider: row.provider,
+    externalEnvelopeId: row.externalEnvelopeId || null,
+    status: normalizeContractSignatureStatus(row.status),
+    signingUrl: row.signingUrl || null,
+    contractVersion: row.contractVersion || null,
+    sentAt: row.sentAt ? new Date(row.sentAt).toISOString() : null,
+    signedAt: row.signedAt ? new Date(row.signedAt).toISOString() : null,
+    declinedAt: row.declinedAt ? new Date(row.declinedAt).toISOString() : null,
+    voidedAt: row.voidedAt ? new Date(row.voidedAt).toISOString() : null,
+    documentUrl: row.documentUrl || null,
+    auditTrailUrl: row.auditTrailUrl || null,
+    lastEventAt: row.lastEventAt ? new Date(row.lastEventAt).toISOString() : null,
+    createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+    updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+  };
+}
+
+async function getLatestVendorContractSignature(vendorApplicationId) {
+  if (!supportsPrismaModel('vendorContractSignature')) return null;
+  try {
+    const row = await prisma.vendorContractSignature.findFirst({
+      where: { vendorApplicationId: String(vendorApplicationId) },
+      orderBy: [{ createdAt: 'desc' }],
+    });
+    return row ? mapContractSignatureRow(row) : null;
+  } catch (error) {
+    if (isPrismaTableMissingError(error)) return null;
+    throw error;
+  }
 }
 
 function supportsPrismaModel(modelName) {
@@ -4111,7 +4158,206 @@ createServer(async (req, res) => {
       const vendor = await getVendorApplicationByEmail(vendorEmail);
       if (!vendor) return sendJson(res, 404, { error: 'Vendor profile not found' });
       const compliance = await getVendorCompliance(vendor.email);
-      return sendJson(res, 200, { compliance: buildVendorActivationState(vendor, compliance) });
+      const signature = await getLatestVendorContractSignature(vendor.id);
+      return sendJson(res, 200, { compliance: buildVendorActivationState(vendor, compliance), signature });
+    }
+
+    if (req.method === 'GET' && path === '/api/vendor/contract/signing-status') {
+      const vendorEmail = normalizeOptionalString(url.searchParams.get('vendorEmail'), 320);
+      if (!vendorEmail) return sendJson(res, 400, { error: 'vendorEmail is required' });
+
+      const isAdmin = isAdminAuthorized(req);
+      if (!isAdmin) {
+        const auth = requireJwt(req, 'vendor');
+        if (String(auth.email || '').toLowerCase() !== vendorEmail.toLowerCase()) {
+          return sendJson(res, 403, { error: 'Forbidden for this vendorEmail' });
+        }
+      }
+
+      const vendor = await getVendorApplicationByEmail(vendorEmail);
+      if (!vendor) return sendJson(res, 404, { error: 'Vendor profile not found' });
+      const compliance = await getVendorCompliance(vendor.email);
+      const signature = await getLatestVendorContractSignature(vendor.id);
+      return sendJson(res, 200, {
+        provider: CONTRACT_SIGNING_PROVIDER,
+        compliance: buildVendorActivationState(vendor, compliance),
+        signature,
+      });
+    }
+
+    if (req.method === 'POST' && path === '/api/vendor/contract/signing/start') {
+      const auth = requireJwt(req, 'vendor');
+      const body = await readBody(req);
+      const vendorEmail = normalizeOptionalString(body.vendorEmail || auth.email, 320);
+      if (!vendorEmail) return sendJson(res, 400, { error: 'vendorEmail is required' });
+      if (String(auth.email || '').toLowerCase() !== vendorEmail.toLowerCase()) {
+        return sendJson(res, 403, { error: 'vendorEmail must match authenticated vendor' });
+      }
+      const vendor = await getVendorApplicationByEmail(vendorEmail);
+      if (!vendor) return sendJson(res, 404, { error: 'Vendor profile not found' });
+      if (!supportsPrismaModel('vendorContractSignature')) {
+        return sendJson(res, 400, { error: 'vendorContractSignature model is not available yet' });
+      }
+
+      const provider = normalizeOptionalString(body.provider, 64) || CONTRACT_SIGNING_PROVIDER;
+      const externalEnvelopeId = normalizeOptionalString(body.externalEnvelopeId, 191) || `${provider}_${randomUUID()}`;
+      const status = normalizeContractSignatureStatus(body.status || 'sent');
+      const contractVersion = normalizeOptionalString(body.contractVersion, 32) || VENDOR_CONTRACT_VERSION;
+      const signingUrl = normalizeOptionalString(body.signingUrl, 1200);
+      const now = new Date();
+      const signedAt = status === 'completed' ? now : null;
+      const declinedAt = status === 'declined' ? now : null;
+      const voidedAt = status === 'voided' ? now : null;
+
+      const signatureRow = await prisma.vendorContractSignature.create({
+        data: {
+          vendorApplicationId: vendor.id,
+          provider,
+          externalEnvelopeId,
+          status,
+          signingUrl,
+          contractVersion,
+          sentAt: now,
+          signedAt,
+          declinedAt,
+          voidedAt,
+          lastEventAt: now,
+          rawPayload: body || null,
+        },
+      });
+
+      let compliance = await getVendorCompliance(vendor.email);
+      if (status === 'completed') {
+        compliance = await updateVendorCompliance(vendor.email, (current) => ({
+          ...current,
+          contractAccepted: true,
+          contractAcceptedAt: now.toISOString(),
+          contractVersion,
+          contractAcceptedByUserId: String(auth.sub || ''),
+          contractAcceptedIP: getClientIp(req),
+        }));
+        await prisma.$transaction(async (tx) => {
+          const fresh = await tx.vendorApplication.findUnique({ where: { id: vendor.id } });
+          if (!fresh) return;
+          await syncVendorProfileActivationStatus(tx, fresh);
+        });
+      }
+
+      return sendJson(res, 200, {
+        provider,
+        signature: mapContractSignatureRow(signatureRow),
+        compliance: buildVendorActivationState(vendor, compliance),
+      });
+    }
+
+    if (req.method === 'POST' && path === '/api/vendor/contract/signing/webhook') {
+      if (!CONTRACT_SIGNING_WEBHOOK_SECRET) {
+        return sendJson(res, 503, { error: 'CONTRACT_SIGNING_WEBHOOK_SECRET is not configured' });
+      }
+      const secretHeader = req.headers['x-contract-webhook-secret'];
+      const providedSecret = Array.isArray(secretHeader) ? secretHeader[0] : secretHeader;
+      if (String(providedSecret || '') !== CONTRACT_SIGNING_WEBHOOK_SECRET) {
+        return sendJson(res, 401, { error: 'Unauthorized webhook request' });
+      }
+
+      const body = await readBody(req);
+      const provider = normalizeOptionalString(body.provider, 64) || CONTRACT_SIGNING_PROVIDER;
+      const externalEnvelopeId =
+        normalizeOptionalString(body.externalEnvelopeId || body.envelopeId || body.signatureRequestId, 191);
+      const vendorEmail = normalizeOptionalString(body.vendorEmail || body.signerEmail || body.email, 320);
+      const status = normalizeContractSignatureStatus(body.status || body.event || 'sent');
+      const contractVersion = normalizeOptionalString(body.contractVersion, 32) || VENDOR_CONTRACT_VERSION;
+      const signingUrl = normalizeOptionalString(body.signingUrl, 1200);
+      const documentUrl = normalizeOptionalString(body.documentUrl || body.signedDocumentUrl, 1200);
+      const auditTrailUrl = normalizeOptionalString(body.auditTrailUrl, 1200);
+      const eventAt = normalizeOptionalString(body.signedAt || body.eventAt, 64);
+      const eventDate = eventAt ? new Date(eventAt) : new Date();
+      const effectiveEventDate = Number.isNaN(eventDate.getTime()) ? new Date() : eventDate;
+
+      if (!externalEnvelopeId && !vendorEmail) {
+        return sendJson(res, 400, { error: 'externalEnvelopeId or vendorEmail is required' });
+      }
+
+      let vendor = null;
+      let existingSignature = null;
+      if (supportsPrismaModel('vendorContractSignature') && externalEnvelopeId) {
+        existingSignature = await prisma.vendorContractSignature.findFirst({
+          where: { provider, externalEnvelopeId },
+          include: { vendorApplication: true },
+        });
+        vendor = existingSignature?.vendorApplication || null;
+      }
+      if (!vendor && vendorEmail) {
+        vendor = await getVendorApplicationByEmail(vendorEmail);
+      }
+      if (!vendor) return sendJson(res, 404, { error: 'Vendor profile not found for webhook payload' });
+
+      let signature = null;
+      if (supportsPrismaModel('vendorContractSignature')) {
+        const updateData = {
+          status,
+          signingUrl,
+          contractVersion,
+          documentUrl,
+          auditTrailUrl,
+          lastEventAt: effectiveEventDate,
+          rawPayload: body || null,
+          ...(status === 'completed' ? { signedAt: effectiveEventDate } : {}),
+          ...(status === 'declined' ? { declinedAt: effectiveEventDate } : {}),
+          ...(status === 'voided' ? { voidedAt: effectiveEventDate } : {}),
+        };
+        if (existingSignature) {
+          signature = await prisma.vendorContractSignature.update({
+            where: { id: existingSignature.id },
+            data: updateData,
+          });
+        } else {
+          signature = await prisma.vendorContractSignature.create({
+            data: {
+              vendorApplicationId: vendor.id,
+              provider,
+              externalEnvelopeId,
+              status,
+              signingUrl,
+              contractVersion,
+              documentUrl,
+              auditTrailUrl,
+              sentAt: effectiveEventDate,
+              signedAt: status === 'completed' ? effectiveEventDate : null,
+              declinedAt: status === 'declined' ? effectiveEventDate : null,
+              voidedAt: status === 'voided' ? effectiveEventDate : null,
+              lastEventAt: effectiveEventDate,
+              rawPayload: body || null,
+            },
+          });
+        }
+      }
+
+      let compliance = await getVendorCompliance(vendor.email);
+      if (status === 'completed') {
+        compliance = await updateVendorCompliance(vendor.email, (current) => ({
+          ...current,
+          contractAccepted: true,
+          contractAcceptedAt: effectiveEventDate.toISOString(),
+          contractVersion,
+          contractAcceptedByUserId: current.contractAcceptedByUserId || 'external-signing-provider',
+          contractAcceptedIP: current.contractAcceptedIP || 'external-signing-provider',
+        }));
+        await prisma.$transaction(async (tx) => {
+          const fresh = await tx.vendorApplication.findUnique({ where: { id: vendor.id } });
+          if (!fresh) return;
+          await syncVendorProfileActivationStatus(tx, fresh);
+        });
+      }
+
+      return sendJson(res, 200, {
+        ok: true,
+        provider,
+        vendorEmail: vendor.email,
+        status,
+        signature: signature ? mapContractSignatureRow(signature) : null,
+        compliance: buildVendorActivationState(vendor, compliance),
+      });
     }
 
     if (
@@ -4136,6 +4382,26 @@ createServer(async (req, res) => {
         contractAcceptedByUserId: String(auth.sub || ''),
         contractAcceptedIP: getClientIp(req),
       }));
+
+      if (supportsPrismaModel('vendorContractSignature')) {
+        try {
+          await prisma.vendorContractSignature.create({
+            data: {
+              vendorApplicationId: vendor.id,
+              provider: 'manual',
+              externalEnvelopeId: `manual_${randomUUID()}`,
+              status: 'completed',
+              contractVersion: accepted.contractVersion || VENDOR_CONTRACT_VERSION,
+              sentAt: new Date(),
+              signedAt: new Date(),
+              lastEventAt: new Date(),
+              rawPayload: { source: 'manual_contract_accept_endpoint' },
+            },
+          });
+        } catch (error) {
+          if (!isPrismaTableMissingError(error)) throw error;
+        }
+      }
 
       await prisma.$transaction(async (tx) => {
         const fresh = await tx.vendorApplication.findUnique({ where: { id: vendor.id } });

@@ -38,6 +38,8 @@ Backend runs on `http://localhost:4000`.
 - `VITE_GOOGLE_CLIENT_ID` (Google client id exposed to frontend for vendor sign-in)
 - `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_PUBLIC_BASE_URL` (Cloudflare R2 upload)
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `ADMIN_NOTIFY_EMAIL` (vendor application email notifications)
+- `CONTRACT_SIGNING_PROVIDER` (label for external e-sign provider, default: `external`)
+- `CONTRACT_SIGNING_WEBHOOK_SECRET` (required for `/api/vendor/contract/signing/webhook`)
 
 ## Admin dashboard
 
