@@ -327,6 +327,62 @@ function normalizeOptionalString(input, maxLength = 255) {
   return value.slice(0, maxLength);
 }
 
+function normalizeMatchText(input) {
+  return String(input || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\u00c0-\u024f]+/g, ' ')
+    .trim();
+}
+
+function extractKeywordSet(values) {
+  const result = new Set();
+  for (const value of values || []) {
+    const normalized = normalizeMatchText(value);
+    if (!normalized) continue;
+    for (const token of normalized.split(/\s+/)) {
+      if (token.length >= 3) result.add(token);
+    }
+  }
+  return result;
+}
+
+function resolveVendorCategoryKeywords(vendor, posts) {
+  const haystack = normalizeMatchText([
+    vendor?.businessName || '',
+    ...(posts || []).map((post) => `${post.serviceName || ''} ${post.title || ''} ${post.description || ''}`),
+  ].join(' '));
+  const categories = new Set();
+  if (/(^|\s)(dj|music|musician|sound|audio|band)(\s|$)/.test(haystack)) categories.add('dj');
+  if (/(^|\s)(catering|food|chef|kitchen|drink|bar)(\s|$)/.test(haystack)) categories.add('catering');
+  if (/(^|\s)(decor|deco|decoration|florist|flowers|styling)(\s|$)/.test(haystack)) categories.add('decor');
+  if (/(^|\s)(photo|video|camera|filmer)(\s|$)/.test(haystack)) categories.add('media');
+  if (/(^|\s)(venue|hall|location|space)(\s|$)/.test(haystack)) categories.add('venue');
+  return categories;
+}
+
+function resolveRequestCategoryKeywords(request) {
+  const categories = new Set();
+  const source = normalizeMatchText(
+    [
+      ...(Array.isArray(request?.selectedServices) ? request.selectedServices : []),
+      request?.notes || '',
+    ].join(' '),
+  );
+  if (/(^|\s)(dj|music|musician|sound|audio|band)(\s|$)/.test(source)) categories.add('dj');
+  if (/(^|\s)(catering|food|chef|kitchen|drink|bar)(\s|$)/.test(source)) categories.add('catering');
+  if (/(^|\s)(decor|deco|decoration|florist|flowers|styling)(\s|$)/.test(source)) categories.add('decor');
+  if (/(^|\s)(photo|video|camera|filmer)(\s|$)/.test(source)) categories.add('media');
+  if (/(^|\s)(venue|hall|location|space)(\s|$)/.test(source)) categories.add('venue');
+  return categories;
+}
+
+function intersects(setA, setB) {
+  for (const item of setA) {
+    if (setB.has(item)) return true;
+  }
+  return false;
+}
+
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
 const URL_OR_SOCIAL_PATTERN = /(https?:\/\/|www\.|\.com|\.de|\.net|\.io|instagram|whatsapp|telegram|t\.me)/i;
 const PHONE_PATTERN = /(\+?\d[\d\s().-]{7,}\d)/;
@@ -3442,13 +3498,68 @@ createServer(async (req, res) => {
 
     if (req.method === 'GET' && path === '/api/requests/open') {
       ensureLegacyFlowEnabled();
+      const auth = requireJwt(req, 'vendor', 'admin');
       await expireStaleRequests();
+      const requestedVendorEmail = String(url.searchParams.get('vendorEmail') || '').trim();
+      const vendorEmail = auth.role === 'vendor'
+        ? String(auth.email || '').trim()
+        : requestedVendorEmail;
+
+      if (!vendorEmail) {
+        return sendJson(res, 400, { error: 'vendorEmail is required for admin query' });
+      }
+
+      const vendor = await prisma.vendorApplication.findFirst({
+        where: { email: { equals: vendorEmail, mode: 'insensitive' } },
+      });
+      if (!vendor) return sendJson(res, 404, { error: 'Vendor profile not found' });
+
+      const vendorPosts = await prisma.vendorPost.findMany({
+        where: {
+          vendorApplicationId: vendor.id,
+          isActive: true,
+        },
+      });
+
+      const vendorKeywords = extractKeywordSet([
+        vendor.businessName || '',
+        vendor.city || '',
+        ...vendorPosts.map((post) => post.title || ''),
+        ...vendorPosts.map((post) => post.serviceName || ''),
+      ]);
+      const vendorCategories = resolveVendorCategoryKeywords(vendor, vendorPosts);
+
       const requests = await prisma.serviceRequest.findMany({
         where: { status: 'open' },
         include: { offers: { orderBy: { createdAt: 'desc' } } },
         orderBy: { createdAt: 'desc' },
       });
-      return sendJson(res, 200, { requests: requests.map(serializeRequest) });
+
+      const filtered = requests.filter((request) => {
+        const existingOfferByVendor = (request.offers || []).some(
+          (offer) => String(offer.vendorEmail || '').toLowerCase() === vendorEmail.toLowerCase(),
+        );
+        if (existingOfferByVendor) return true;
+
+        const requestKeywords = extractKeywordSet([
+          ...(Array.isArray(request.selectedServices) ? request.selectedServices : []),
+          request.notes || '',
+          request.address || '',
+        ]);
+        const requestCategories = resolveRequestCategoryKeywords(request);
+        if (intersects(vendorCategories, requestCategories)) return true;
+        if (intersects(vendorKeywords, requestKeywords)) return true;
+
+        const selected = (Array.isArray(request.selectedServices) ? request.selectedServices : [])
+          .map((value) => normalizeMatchText(value))
+          .join(' ');
+        if (selected && normalizeMatchText(vendor.businessName).length >= 3) {
+          if (selected.includes(normalizeMatchText(vendor.businessName))) return true;
+        }
+        return false;
+      });
+
+      return sendJson(res, 200, { requests: filtered.map(serializeRequest) });
     }
 
     if (req.method === 'GET' && path === '/api/requests') {

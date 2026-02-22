@@ -944,30 +944,40 @@ export default function AdminDashboard() {
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
             <h2 className="text-xl font-semibold text-gray-900">Admin Audit Log</h2>
-            <p className="text-xs text-gray-500">Last {auditLogs.length} entries</p>
+            <p className="text-sm text-gray-500">Last {auditLogs.length} entries</p>
           </div>
           {auditLogs.length === 0 ? (
-            <p className="text-sm text-gray-600">No audit entries found.</p>
+            <p className="text-base text-gray-600">No audit entries found.</p>
           ) : (
-            <div className="overflow-auto">
-              <table className="min-w-full text-sm">
+            <div className="overflow-auto rounded-lg border border-gray-200">
+              <table className="min-w-full text-base">
                 <thead>
-                  <tr className="text-left border-b border-gray-200">
-                    <th className="py-2 pr-3">When</th>
-                    <th className="py-2 pr-3">Admin</th>
-                    <th className="py-2 pr-3">Action</th>
-                    <th className="py-2 pr-3">Target</th>
-                    <th className="py-2 pr-3">Meta</th>
+                  <tr className="text-left border-b border-gray-200 bg-gray-50 text-gray-700">
+                    <th className="py-3 px-4 font-semibold">When</th>
+                    <th className="py-3 px-4 font-semibold">Admin</th>
+                    <th className="py-3 px-4 font-semibold">Action</th>
+                    <th className="py-3 px-4 font-semibold">Target</th>
+                    <th className="py-3 px-4 font-semibold">Meta</th>
                   </tr>
                 </thead>
                 <tbody>
                   {auditLogs.map((row) => (
-                    <tr key={row.id} className="border-b border-gray-100">
-                      <td className="py-2 pr-3">{row.createdAt ? new Date(row.createdAt).toLocaleString() : '-'}</td>
-                      <td className="py-2 pr-3 font-mono text-xs">{row.adminId}</td>
-                      <td className="py-2 pr-3">{row.action}</td>
-                      <td className="py-2 pr-3 font-mono text-xs">{row.targetId || '-'}</td>
-                      <td className="py-2 pr-3 text-xs text-gray-600">{row.metaJson || '-'}</td>
+                    <tr key={row.id} className="border-b border-gray-100 align-top">
+                      <td className="py-3 px-4 whitespace-nowrap text-sm font-medium text-gray-800">
+                        {row.createdAt ? new Date(row.createdAt).toLocaleString() : '-'}
+                      </td>
+                      <td className="py-3 px-4 font-mono text-sm text-gray-700 break-all">{row.adminId}</td>
+                      <td className="py-3 px-4">
+                        <span className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
+                          {row.action}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 font-mono text-sm text-gray-700 break-all">{row.targetId || '-'}</td>
+                      <td className="py-3 px-4">
+                        <pre className="max-w-xl overflow-auto rounded-md bg-gray-50 px-3 py-2 text-xs text-gray-700 whitespace-pre-wrap break-words">
+                          {row.metaJson || '-'}
+                        </pre>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
