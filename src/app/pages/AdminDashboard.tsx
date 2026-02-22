@@ -218,11 +218,14 @@ export default function AdminDashboard() {
     setError('');
     try {
       const reviewNote =
-        status === 'pending_review'
-          ? undefined
-          : window.prompt('Optional review note for vendor (shown in database):', '') || undefined;
-      await updateVendorApplicationStatus(adminToken, applicationId, status, reviewNote);
-      await loadDashboard();
+        status === 'rejected'
+          ? window.prompt('Optional review note for vendor (shown in database):', '') || undefined
+          : undefined;
+      const result = await updateVendorApplicationStatus(adminToken, applicationId, status, reviewNote);
+      setApplications((prev) => prev.map((app) => (app.id === applicationId ? result.application : app)));
+      setSelectedApplication((prev) => (prev && prev.id === applicationId ? result.application : prev));
+      // Refresh related sections in background, but do not block immediate UI update.
+      void loadDashboard();
       if (status === 'approved') toast.success(isDe ? 'Vendor freigegeben.' : 'Vendor approved.');
       if (status === 'rejected') toast.success(isDe ? 'Vendor abgelehnt.' : 'Vendor rejected.');
       if (status === 'pending_review') toast.success(isDe ? 'Vendor auf Pending gesetzt.' : 'Vendor moved to pending.');
