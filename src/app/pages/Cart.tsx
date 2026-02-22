@@ -67,6 +67,11 @@ export default function Cart() {
     && Number(bookingForm.guestCount) > 0
     && Boolean(bookingForm.termsAccepted);
 
+  const showValidationMessage = (message: string) => {
+    setUiError(message);
+    toast.error(message);
+  };
+
   useEffect(() => {
     try {
       const raw = localStorage.getItem(SERVICE_REQUEST_STATUS_STORAGE_KEY);
@@ -211,11 +216,11 @@ export default function Cart() {
     setUiError('');
     setUiInfo('');
     if (isBookingBlockedForRole) {
-      setUiError('Please use a customer account for checkout.');
+      showValidationMessage('Please use a customer account for checkout.');
       return;
     }
     if (!cart.venue) {
-      setUiError('Please select a venue before checkout.');
+      showValidationMessage('Please select a venue before checkout.');
       return;
     }
     if (!import.meta.env.VITE_API_BASE_URL && !API_BASE) {
@@ -298,10 +303,11 @@ export default function Cart() {
   async function submitCompleteBookingForm(e: React.FormEvent) {
     e.preventDefault();
     setUiError('');
-    const raiseValidation = (message: string) => {
-      setUiError(message);
-      toast.error(message);
-    };
+    const raiseValidation = (message: string) => showValidationMessage(message);
+    if (!cart.venue) {
+      raiseValidation('Please select a venue before checkout.');
+      return;
+    }
     if (!bookingForm.name.trim() || !bookingForm.email.trim()) {
       raiseValidation('Please enter name and email.');
       return;
@@ -333,6 +339,18 @@ export default function Cart() {
       return;
     }
     await checkout();
+  }
+
+  function toggleCheckoutForm() {
+    if (isBookingBlockedForRole) {
+      showValidationMessage('Please use a customer account for checkout.');
+      return;
+    }
+    if (!cart.venue) {
+      showValidationMessage('Please select a venue first.');
+      return;
+    }
+    setShowCheckoutForm((prev) => !prev);
   }
 
   async function sendRequestToVendors() {
@@ -762,9 +780,8 @@ export default function Cart() {
             </button>
             <button
               type="button"
-              onClick={() => setShowCheckoutForm((prev) => !prev)}
-              disabled={!cart.venue || isBookingBlockedForRole}
-              className="sm:ml-auto inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+              onClick={toggleCheckoutForm}
+              className="sm:ml-auto inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-purple-700"
             >
               {isBookingBlockedForRole ? 'Customers only' : 'Pay venue now'}
               <ArrowRight className="size-4" />
@@ -778,7 +795,7 @@ export default function Cart() {
               </p>
                 <button
                   type="submit"
-                  disabled={!cart.venue || isBookingBlockedForRole || payNowLoading}
+                  disabled={payNowLoading}
                   className="inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 >
                   {payNowLoading ? 'Starting checkout...' : 'Pay now'}
