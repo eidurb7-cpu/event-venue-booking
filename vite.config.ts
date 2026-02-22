@@ -17,6 +17,23 @@ export default defineConfig({
     },
   },
 
+  build: {
+    chunkSizeWarningLimit: 900,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return;
+          if (id.includes('@mui') || id.includes('@emotion')) return 'mui-vendor';
+          if (id.includes('@radix-ui') || id.includes('lucide-react') || id.includes('sonner')) return 'ui-vendor';
+          if (id.includes('@aws-sdk') || id.includes('stripe') || id.includes('jsonwebtoken') || id.includes('@prisma')) {
+            return 'sdk-vendor';
+          }
+          return 'vendor';
+        },
+      },
+    },
+  },
+
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
 })
