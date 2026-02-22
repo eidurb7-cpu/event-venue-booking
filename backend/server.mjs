@@ -4011,6 +4011,40 @@ createServer(async (req, res) => {
       return sendJson(res, 200, { inquiries });
     }
 
+    if (req.method === 'POST' && path.match(/^\/api\/admin\/inquiries\/[^/]+\/reply$/)) {
+      const inquiryId = path.split('/')[4];
+      const body = await readBody(req);
+      const replyMessage = normalizeOptionalString(body?.replyMessage, 2000);
+      if (!replyMessage) return sendJson(res, 400, { error: 'replyMessage is required' });
+
+      const inquiry = await prisma.vendorInquiry.findUnique({ where: { id: inquiryId } });
+      if (!inquiry) return sendJson(res, 404, { error: 'Inquiry not found' });
+
+      await sendMailSafe({
+        to: inquiry.vendorEmail,
+        subject: `Admin reply: ${inquiry.subject}`,
+        text: [
+          'Hello,',
+          '',
+          'This is a reply from EventVenue admin regarding your inquiry:',
+          `"${inquiry.subject}"`,
+          '',
+          replyMessage,
+        ].join('\n'),
+      });
+
+      const updated = await prisma.vendorInquiry.update({
+        where: { id: inquiryId },
+        data: { status: 'answered' },
+      });
+
+      await writeAdminAuditLog(req, 'vendor_inquiry_replied', inquiryId, {
+        vendorEmail: inquiry.vendorEmail,
+      });
+
+      return sendJson(res, 200, { inquiry: updated, replied: true });
+    }
+
     if (req.method === 'GET' && path === '/api/services-catalog') {
       const services = await prisma.serviceCatalog.findMany({
         where: { isActive: true },

@@ -20,6 +20,7 @@ import {
   seedAdminVendors,
   setOfferStatus,
   releaseAdminPayout,
+  replyAdminInquiry,
   updateVendorApplicationStatus,
 } from '../utils/api';
 import { clearAdminSession, getAdminToken, getAdminUser, setAdminSession } from '../utils/auth';
@@ -83,6 +84,8 @@ export default function AdminDashboard() {
   const [releasingPayoutId, setReleasingPayoutId] = useState('');
   const [backfillingCompliance, setBackfillingCompliance] = useState(false);
   const [reviewNoteDrafts, setReviewNoteDrafts] = useState<Record<string, string>>({});
+  const [inquiryReplyDrafts, setInquiryReplyDrafts] = useState<Record<string, string>>({});
+  const [replyingInquiryId, setReplyingInquiryId] = useState('');
   const appStatusByEmail = Object.fromEntries(applications.map((app) => [String(app.email || '').toLowerCase(), app.status]));
   const activeApplications = applications.filter((a) => a.status !== 'approved');
   const approvedHistory = applications.filter((a) => a.status === 'approved');
@@ -308,6 +311,28 @@ export default function AdminDashboard() {
 
   const toggleRequest = (id: string) => {
     setOpenRequestIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const replyInquiry = async (inquiryId: string) => {
+    const replyMessage = String(inquiryReplyDrafts[inquiryId] || '').trim();
+    if (!replyMessage) {
+      toast.error(isDe ? 'Bitte zuerst eine Antwort eingeben.' : 'Please enter a reply first.');
+      return;
+    }
+    setReplyingInquiryId(inquiryId);
+    setError('');
+    try {
+      const result = await replyAdminInquiry(adminToken, inquiryId, replyMessage);
+      setInquiries((prev) => prev.map((row) => (row.id === inquiryId ? result.inquiry : row)));
+      setInquiryReplyDrafts((prev) => ({ ...prev, [inquiryId]: '' }));
+      toast.success(isDe ? 'Antwort gesendet.' : 'Reply sent.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to send reply.';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setReplyingInquiryId('');
+    }
   };
 
   if (!adminToken) {
@@ -913,6 +938,25 @@ export default function AdminDashboard() {
                 </div>
                 <p className="text-sm text-gray-700 mt-1">Von: {inq.vendorEmail}</p>
                 <p className="text-sm text-gray-600 mt-1">{inq.message}</p>
+                <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    placeholder={isDe ? 'Antwort an Vendor...' : 'Reply to vendor...'}
+                    value={inquiryReplyDrafts[inq.id] || ''}
+                    onChange={(e) => setInquiryReplyDrafts((prev) => ({ ...prev, [inq.id]: e.target.value }))}
+                    className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => replyInquiry(inq.id)}
+                    disabled={replyingInquiryId === inq.id}
+                    className="rounded-lg bg-indigo-600 text-white px-4 py-2 text-sm hover:bg-indigo-700 disabled:opacity-60"
+                  >
+                    {replyingInquiryId === inq.id
+                      ? (isDe ? 'Sende...' : 'Sending...')
+                      : (isDe ? 'Antwort senden' : 'Send reply')}
+                  </button>
+                </div>
               </div>
             ))}
           </div>

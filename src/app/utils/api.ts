@@ -812,6 +812,24 @@ export function getAdminInquiries(adminToken: string) {
   }>;
 }
 
+export function replyAdminInquiry(adminToken: string, inquiryId: string, replyMessage: string) {
+  return request(`/api/admin/inquiries/${encodeURIComponent(inquiryId)}/reply`, {
+    method: 'POST',
+    headers: withAdminToken(adminToken),
+    body: JSON.stringify({ replyMessage }),
+  }) as Promise<{
+    inquiry: {
+      id: string;
+      vendorEmail: string;
+      subject: string;
+      message: string;
+      status: string;
+      createdAt: string;
+    };
+    replied: boolean;
+  }>;
+}
+
 export function adminLogin(payload: { email: string; password: string }) {
   return request('/api/admin/login', {
     method: 'POST',
