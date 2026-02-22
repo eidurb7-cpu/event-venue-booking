@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router';
 import { MapPin, Users, Check, Calendar as CalendarIcon, Trash2, ArrowRight } from 'lucide-react';
 import { venues, services } from '../data/mockData';
@@ -9,6 +9,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popove
 import { getCurrentUser } from '../utils/auth';
 import { useCart } from '../context/CartContext';
 import { toCartVenue } from '../types/cart';
+import { getCustomerProfile, updateCustomerProfile } from '../utils/api';
 
 type SavedVenueState = {
   selectedDate: string;
@@ -32,9 +33,14 @@ export default function VenueDetail() {
     name: '',
     email: '',
     phone: '',
+    address: '',
     notes: '',
   });
-  const currentUser = getCurrentUser();
+  const [profileSyncStatus, setProfileSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const currentUser = useMemo(() => getCurrentUser(), []);
+  const customerEmail = currentUser?.role === 'customer' ? (currentUser.user.email || '').trim() : '';
+  const lastSavedProfileSnapshotRef = useRef('');
+  const profileHydratedRef = useRef(false);
   const isBookingBlockedForRole = currentUser?.role === 'vendor' || currentUser?.role === 'admin';
   const venueStateStorageKey = venue ? `venueState:${venue.id}` : '';
   const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
@@ -59,6 +65,72 @@ export default function VenueDetail() {
     if (!venueStateStorageKey) return;
     localStorage.setItem(venueStateStorageKey, JSON.stringify({ selectedDate, estimatedGuests }));
   }, [venueStateStorageKey, selectedDate, estimatedGuests]);
+
+  useEffect(() => {
+    if (!currentUser || currentUser.role !== 'customer') return;
+    let active = true;
+    const hydrateCustomerProfile = async () => {
+      try {
+        const profileData = await getCustomerProfile();
+        if (!active) return;
+        const profile = profileData.profile || { name: '', phone: '', address: '' };
+        setBookingForm((prev) => ({
+          ...prev,
+          name: prev.name || profile.name || currentUser.user.name || '',
+          email: prev.email || currentUser.user.email || '',
+          phone: prev.phone || profile.phone || '',
+          address: prev.address || profile.address || '',
+        }));
+        lastSavedProfileSnapshotRef.current = JSON.stringify({
+          name: (profile.name || currentUser.user.name || '').trim(),
+          phone: String(profile.phone || '').trim(),
+          address: String(profile.address || '').trim(),
+        });
+      } catch {
+        if (!active) return;
+        setBookingForm((prev) => ({
+          ...prev,
+          name: prev.name || currentUser.user.name || '',
+          email: prev.email || currentUser.user.email || '',
+        }));
+      } finally {
+        if (!active) return;
+        profileHydratedRef.current = true;
+      }
+    };
+    void hydrateCustomerProfile();
+    return () => {
+      active = false;
+    };
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!customerEmail || !profileHydratedRef.current) return;
+    const payload = {
+      name: bookingForm.name.trim(),
+      phone: bookingForm.phone.trim(),
+      address: bookingForm.address.trim(),
+    };
+    if (!payload.name) return;
+    const snapshot = JSON.stringify(payload);
+    if (snapshot === lastSavedProfileSnapshotRef.current) return;
+
+    const timer = window.setTimeout(async () => {
+      setProfileSyncStatus('saving');
+      try {
+        await updateCustomerProfile({
+          name: payload.name,
+          phone: payload.phone || undefined,
+          address: payload.address || undefined,
+        });
+        lastSavedProfileSnapshotRef.current = snapshot;
+        setProfileSyncStatus('saved');
+      } catch {
+        setProfileSyncStatus('error');
+      }
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [bookingForm.address, bookingForm.name, bookingForm.phone, customerEmail]);
 
   useEffect(() => {
     if (!venue) return;
@@ -193,6 +265,29 @@ export default function VenueDetail() {
     e.preventDefault();
     if (!bookingForm.name.trim() || !bookingForm.email.trim()) {
       alert('Please enter name and email.');
+      return;
+    }
+    if (!bookingForm.address.trim()) {
+      alert('Please enter billing address before checkout.');
+      return;
+    }
+    try {
+      const payload = {
+        name: bookingForm.name.trim(),
+        phone: bookingForm.phone.trim(),
+        address: bookingForm.address.trim(),
+      };
+      setProfileSyncStatus('saving');
+      await updateCustomerProfile({
+        name: payload.name,
+        phone: payload.phone || undefined,
+        address: payload.address || undefined,
+      });
+      lastSavedProfileSnapshotRef.current = JSON.stringify(payload);
+      setProfileSyncStatus('saved');
+    } catch {
+      setProfileSyncStatus('error');
+      alert('Could not save customer profile. Please try again.');
       return;
     }
     await handlePayNow();
@@ -378,10 +473,18 @@ export default function VenueDetail() {
           {showCheckoutForm && (
             <form onSubmit={submitCompleteBookingForm} className="mt-4 rounded-lg border border-gray-200 p-4 space-y-3">
               <p className="text-sm font-semibold text-gray-900">Complete booking</p>
+              {profileSyncStatus !== 'idle' && (
+                <p className={`text-xs ${profileSyncStatus === 'error' ? 'text-red-600' : 'text-gray-500'}`}>
+                  {profileSyncStatus === 'saving' && 'Saving profile...'}
+                  {profileSyncStatus === 'saved' && 'Profile saved for future checkouts.'}
+                  {profileSyncStatus === 'error' && 'Could not auto-save profile.'}
+                </p>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <input type="text" required placeholder="Full name" value={bookingForm.name} onChange={(e) => setBookingForm((p) => ({ ...p, name: e.target.value }))} className="rounded-lg border border-gray-300 px-3 py-2.5" />
                 <input type="email" required placeholder="Email" value={bookingForm.email} onChange={(e) => setBookingForm((p) => ({ ...p, email: e.target.value }))} className="rounded-lg border border-gray-300 px-3 py-2.5" />
                 <input type="tel" placeholder="Phone (optional)" value={bookingForm.phone} onChange={(e) => setBookingForm((p) => ({ ...p, phone: e.target.value }))} className="rounded-lg border border-gray-300 px-3 py-2.5" />
+                <input type="text" required placeholder="Address" value={bookingForm.address} onChange={(e) => setBookingForm((p) => ({ ...p, address: e.target.value }))} className="rounded-lg border border-gray-300 px-3 py-2.5" />
                 <input type="text" placeholder="Short note (optional)" value={bookingForm.notes} onChange={(e) => setBookingForm((p) => ({ ...p, notes: e.target.value }))} className="rounded-lg border border-gray-300 px-3 py-2.5" />
               </div>
               <button type="submit" disabled={!cart.venue || payNowLoading || isBookingBlockedForRole} className="inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed">
