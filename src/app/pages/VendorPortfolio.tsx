@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import {
   ServiceRequest,
@@ -21,10 +21,40 @@ import {
   getVendorPosts,
   getVendorProfile,
   sendVendorInquiry,
+  updateVendorOffer,
   updateVendorPost,
 } from '../utils/api';
 import { getCurrentUser } from '../utils/auth';
 import { useLanguage } from '../context/LanguageContext';
+
+const SERVICE_CATEGORY_HINTS: Record<string, string[]> = {
+  dj: ['dj', 'music', 'sound', 'audio', 'band'],
+  catering: ['catering', 'food', 'chef', 'drinks', 'bar'],
+  decor: ['decor', 'deco', 'decoration', 'flower', 'styling'],
+  media: ['photo', 'video', 'camera', 'filming'],
+  venue: ['venue', 'location', 'hall', 'space'],
+};
+
+function normalizeMatchText(value: string) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\u00c0-\u024f]+/g, ' ')
+    .trim();
+}
+
+function textMatchesVendor(text: string, keywordSet: Set<string>, categorySet: Set<string>) {
+  const normalized = normalizeMatchText(text);
+  if (!normalized) return false;
+  const words = normalized.split(/\s+/);
+  for (const word of words) {
+    if (word.length >= 3 && keywordSet.has(word)) return true;
+  }
+  for (const [category, hints] of Object.entries(SERVICE_CATEGORY_HINTS)) {
+    if (!categorySet.has(category)) continue;
+    if (hints.some((hint) => normalized.includes(hint))) return true;
+  }
+  return false;
+}
 
 export default function VendorPortfolio() {
   const { language } = useLanguage();
@@ -66,6 +96,14 @@ export default function VendorPortfolio() {
     payment: isDe ? 'Zahlung' : 'Payment',
     customerCanPay: isDe ? 'Kunde hat angenommen: Zahlung ist jetzt moeglich.' : 'Customer accepted: payment is now enabled.',
     waitingCustomerDecision: isDe ? 'Warte auf Kundenentscheidung (annehmen/ablehnen).' : 'Waiting for customer decision (accept/decline).',
+    matchedForYou: isDe ? 'Passend für dich' : 'Matched for you',
+    otherRequested: isDe ? 'Weitere angefragte Services' : 'Other requested services',
+    requestDetails: isDe ? 'Anfrage-Details' : 'Request details',
+    note: isDe ? 'Hinweis' : 'Note',
+    editOffer: isDe ? 'Angebot bearbeiten' : 'Edit offer',
+    save: isDe ? 'Speichern' : 'Save',
+    cancel: isDe ? 'Abbrechen' : 'Cancel',
+    saving: isDe ? 'Speichert...' : 'Saving...',
   };
   const [vendorName, setVendorName] = useState('');
   const [vendorEmail, setVendorEmail] = useState('');
@@ -87,6 +125,10 @@ export default function VendorPortfolio() {
   const [priceByRequest, setPriceByRequest] = useState<Record<string, string>>({});
   const [messageByRequest, setMessageByRequest] = useState<Record<string, string>>({});
   const [decliningRequestId, setDecliningRequestId] = useState('');
+  const [editingOfferId, setEditingOfferId] = useState('');
+  const [editOfferPrice, setEditOfferPrice] = useState('');
+  const [editOfferMessage, setEditOfferMessage] = useState('');
+  const [savingOfferId, setSavingOfferId] = useState('');
   const [inquirySubject, setInquirySubject] = useState('');
   const [inquiryMessage, setInquiryMessage] = useState('');
   const [postForm, setPostForm] = useState({
@@ -264,6 +306,41 @@ export default function VendorPortfolio() {
     return isDe ? 'Unbezahlt' : 'Unpaid';
   };
 
+  const vendorMatchProfile = useMemo(() => {
+    const keywords = new Set<string>();
+    const categories = new Set<string>();
+    const source = [
+      vendorName,
+      vendorProfile?.businessName || '',
+      ...(posts || []).map((post) => `${post.serviceName || ''} ${post.title || ''} ${post.description || ''}`),
+    ]
+      .join(' ')
+      .trim();
+    const normalized = normalizeMatchText(source);
+    for (const token of normalized.split(/\s+/)) {
+      if (token.length >= 3) keywords.add(token);
+    }
+    for (const [category, hints] of Object.entries(SERVICE_CATEGORY_HINTS)) {
+      if (hints.some((hint) => normalized.includes(hint))) categories.add(category);
+    }
+    return { keywords, categories };
+  }, [posts, vendorName, vendorProfile?.businessName]);
+
+  const requestHighlightsById = useMemo(() => {
+    const byId: Record<string, { matched: string[]; others: string[] }> = {};
+    for (const request of openRequests) {
+      const selected = Array.isArray(request.selectedServices) ? request.selectedServices : [];
+      const matched = selected.filter((service) =>
+        textMatchesVendor(service, vendorMatchProfile.keywords, vendorMatchProfile.categories),
+      );
+      byId[request.id] = {
+        matched: matched.length > 0 ? matched : selected.slice(0, 1),
+        others: selected.filter((service) => !matched.includes(service)),
+      };
+    }
+    return byId;
+  }, [openRequests, vendorMatchProfile.categories, vendorMatchProfile.keywords]);
+
   const declineRequest = async (requestId: string) => {
     if (!vendorCompliance?.canPublish) {
       setError('Publishing is blocked until admin approval, contract acceptance, and training completion.');
@@ -284,6 +361,37 @@ export default function VendorPortfolio() {
       setError(err instanceof Error ? err.message : 'Fehler beim Ablehnen der Anfrage.');
     } finally {
       setDecliningRequestId('');
+    }
+  };
+
+  const startEditOffer = (offer: VendorOfferWithRequest) => {
+    setEditingOfferId(offer.id);
+    setEditOfferPrice(String(offer.price || ''));
+    setEditOfferMessage(offer.message || '');
+  };
+
+  const cancelEditOffer = () => {
+    setEditingOfferId('');
+    setEditOfferPrice('');
+    setEditOfferMessage('');
+  };
+
+  const saveEditedOffer = async (offerId: string) => {
+    const price = Number(editOfferPrice || 0);
+    if (!Number.isFinite(price) || price <= 0) {
+      setError(isDe ? 'Bitte gültigen Preis eingeben.' : 'Please enter a valid price.');
+      return;
+    }
+    setSavingOfferId(offerId);
+    setError('');
+    try {
+      await updateVendorOffer(offerId, { price, message: editOfferMessage || '' });
+      cancelEditOffer();
+      await Promise.all([loadMyOffers(vendorEmail), loadOpenRequests()]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : (isDe ? 'Angebot konnte nicht aktualisiert werden.' : 'Failed to update offer.'));
+    } finally {
+      setSavingOfferId('');
     }
   };
 
@@ -820,15 +928,46 @@ export default function VendorPortfolio() {
 
           {openRequests.map((request) => (
             <div key={request.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-lg font-semibold text-gray-900">{request.id}</h2>
-                <span className="text-sm text-gray-600">{tx.budgetLabel}: EUR {request.budget.toLocaleString()}</span>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">{request.id}</h2>
+                  <p className="text-xs text-gray-500 mt-1">{tx.requestDetails}</p>
+                </div>
+                <span className="rounded-full bg-purple-50 px-3 py-1 text-sm font-medium text-purple-700">
+                  {tx.budgetLabel}: EUR {request.budget.toLocaleString()}
+                </span>
               </div>
-              <p className="text-sm text-gray-600 mt-1">{tx.customer}: {request.customerName} ({request.customerEmail})</p>
+              <p className="text-sm text-gray-700 mt-2">{tx.customer}: {request.customerName} ({request.customerEmail})</p>
               {request.customerPhone && <p className="text-sm text-gray-600 mt-1">{tx.phone}: {request.customerPhone}</p>}
-              <p className="text-sm text-orange-700 mt-1">{tx.deadline}: {new Date(request.expiresAt).toLocaleString()}</p>
-              <p className="text-sm text-gray-700 mt-2">{tx.servicesLabel}: {request.selectedServices.join(', ')}</p>
-              {request.notes && <p className="text-sm text-gray-600 mt-2">{request.notes}</p>}
+              <p className="text-sm text-orange-700 mt-1 font-medium">{tx.deadline}: {new Date(request.expiresAt).toLocaleString()}</p>
+              <div className="mt-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-green-700">{tx.matchedForYou}</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {(requestHighlightsById[request.id]?.matched || []).map((service, index) => (
+                    <span key={`${request.id}-match-${index}`} className="rounded-full border border-green-200 bg-green-50 px-3 py-1 text-sm font-medium text-green-700">
+                      {service}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              {(requestHighlightsById[request.id]?.others || []).length > 0 && (
+                <div className="mt-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">{tx.otherRequested}</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {(requestHighlightsById[request.id]?.others || []).map((service, index) => (
+                      <span key={`${request.id}-other-${index}`} className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-sm text-gray-600">
+                        {service}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {request.notes && (
+                <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">{tx.note}</p>
+                  <p className="text-sm text-gray-700">{request.notes}</p>
+                </div>
+              )}
 
               <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
                 <input
@@ -883,14 +1022,65 @@ export default function VendorPortfolio() {
                 <p className="font-medium text-gray-900">{offer.request.id}</p>
                 <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-700">{getOfferStatusLabel(offer.status)}</span>
               </div>
-              <p className="text-sm text-gray-700 mt-2">
-                {tx.requestStatus}: {offer.request.status} | {tx.yourPriceLabel}: EUR {offer.price.toLocaleString()}
-              </p>
+              {editingOfferId === offer.id ? (
+                <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <input
+                    type="number"
+                    min={1}
+                    value={editOfferPrice}
+                    onChange={(e) => setEditOfferPrice(e.target.value)}
+                    className="rounded-lg border border-gray-300 px-3 py-2.5"
+                    placeholder={tx.yourPrice}
+                  />
+                  <input
+                    type="text"
+                    value={editOfferMessage}
+                    onChange={(e) => setEditOfferMessage(e.target.value)}
+                    className="rounded-lg border border-gray-300 px-3 py-2.5 md:col-span-2"
+                    placeholder={tx.optionalMessage}
+                  />
+                </div>
+              ) : (
+                <p className="text-sm text-gray-700 mt-2">
+                  {tx.requestStatus}: {offer.request.status} | {tx.yourPriceLabel}: EUR {offer.price.toLocaleString()}
+                </p>
+              )}
               <p className="text-sm text-gray-600 mt-1">{tx.payment}: {getPaymentStatusLabel(offer.paymentStatus)}</p>
               {offer.status === 'accepted' ? (
                 <p className="mt-2 text-xs text-green-700">{tx.customerCanPay}</p>
               ) : (
                 <p className="mt-2 text-xs text-gray-600">{tx.waitingCustomerDecision}</p>
+              )}
+              {offer.status === 'pending' && offer.paymentStatus !== 'paid' && (
+                <div className="mt-3 flex items-center gap-2">
+                  {editingOfferId === offer.id ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => saveEditedOffer(offer.id)}
+                        disabled={savingOfferId === offer.id}
+                        className="rounded-lg bg-purple-600 text-white px-3 py-2 text-sm hover:bg-purple-700 disabled:opacity-60"
+                      >
+                        {savingOfferId === offer.id ? tx.saving : tx.save}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelEditOffer}
+                        className="rounded-lg border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50"
+                      >
+                        {tx.cancel}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => startEditOffer(offer)}
+                      className="rounded-lg border border-purple-300 text-purple-700 px-3 py-2 text-sm hover:bg-purple-50"
+                    >
+                      {tx.editOffer}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           ))}

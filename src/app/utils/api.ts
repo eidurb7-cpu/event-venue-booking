@@ -494,6 +494,16 @@ export function getVendorOffers(vendorEmail: string) {
   }>;
 }
 
+export function updateVendorOffer(
+  offerId: string,
+  payload: { price: number; message?: string },
+) {
+  return request(`/api/vendor/offers/${encodeURIComponent(offerId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  }) as Promise<{ offer: VendorOfferWithRequest }>;
+}
+
 export function getVendorProfile(email: string) {
   return request(`/api/vendor/profile?email=${encodeURIComponent(email)}`) as Promise<{ vendor: VendorApplication }>;
 }

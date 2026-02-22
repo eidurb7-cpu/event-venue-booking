@@ -3720,6 +3720,65 @@ createServer(async (req, res) => {
       });
     }
 
+    if (req.method === 'PATCH' && path.match(/^\/api\/vendor\/offers\/[^/]+$/)) {
+      ensureLegacyFlowEnabled();
+      const auth = requireJwt(req, 'vendor');
+      const offerId = path.split('/')[4];
+      const body = await readBody(req);
+      const price = Number(body.price);
+      const message = normalizeOptionalString(body.message, 1200) || '';
+
+      if (!Number.isFinite(price) || price <= 0) {
+        return sendJson(res, 400, { error: 'price must be > 0' });
+      }
+
+      const offer = await prisma.vendorOffer.findUnique({
+        where: { id: offerId },
+        include: { request: true },
+      });
+      if (!offer) return sendJson(res, 404, { error: 'Offer not found' });
+
+      const vendorEmail = String(auth.email || '').toLowerCase();
+      if (String(offer.vendorEmail || '').toLowerCase() !== vendorEmail) {
+        return sendJson(res, 403, { error: 'You can only edit your own offers' });
+      }
+      if (offer.status !== 'pending') {
+        return sendJson(res, 400, { error: 'Only pending offers can be edited' });
+      }
+      if (offer.paymentStatus === 'paid') {
+        return sendJson(res, 400, { error: 'Paid offers cannot be edited' });
+      }
+      if (offer.request?.status !== 'open') {
+        return sendJson(res, 400, { error: 'Request is not open anymore' });
+      }
+
+      const updated = await prisma.vendorOffer.update({
+        where: { id: offerId },
+        data: {
+          price,
+          message,
+        },
+        include: { request: true },
+      });
+
+      return sendJson(res, 200, {
+        offer: {
+          id: updated.id,
+          vendorName: updated.vendorName,
+          vendorEmail: updated.vendorEmail || '',
+          price: Number(updated.price),
+          message: updated.message || '',
+          status: updated.status,
+          paymentStatus: updated.paymentStatus || 'unpaid',
+          stripeSessionId: updated.stripeSessionId || null,
+          stripePaymentIntent: updated.stripePaymentIntent || null,
+          paidAt: updated.paidAt || null,
+          createdAt: updated.createdAt,
+          request: serializeRequest({ ...updated.request, offers: [] }),
+        },
+      });
+    }
+
     if (req.method === 'POST' && path.match(/^\/api\/vendor\/requests\/[^/]+\/decline$/)) {
       ensureLegacyFlowEnabled();
       const auth = requireJwt(req, 'vendor');
