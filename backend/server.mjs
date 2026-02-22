@@ -13,6 +13,11 @@ import nodemailer from 'nodemailer';
 const prisma = new PrismaClient();
 const PORT = Number(process.env.PORT || process.env.API_PORT || 4000);
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'http://localhost:5173';
+const ALLOWED_ORIGINS = String(process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const CORS_ALLOWED_ORIGINS = Array.from(new Set([ALLOWED_ORIGIN, ...ALLOWED_ORIGINS]));
 const ADMIN_DASHBOARD_KEY = process.env.ADMIN_DASHBOARD_KEY || '';
 const ADMIN_SETUP_KEY = process.env.ADMIN_SETUP_KEY || '';
 const JWT_SECRET = process.env.JWT_SECRET || '';
@@ -92,11 +97,13 @@ if (!['legacy', 'structured', 'both'].includes(BOOKING_FLOW_MODE)) {
 }
 
 function sendJson(res, status, data) {
+  const corsOrigin = resolveCorsOrigin(res.req);
   res.writeHead(status, {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
+    'Access-Control-Allow-Origin': corsOrigin,
     'Access-Control-Allow-Methods': 'GET,POST,PATCH,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-admin-key, x-admin-setup-key',
+    Vary: 'Origin',
   });
   res.end(JSON.stringify(data));
 }
@@ -134,16 +141,25 @@ function readRawBody(req) {
 }
 
 function withCors(req, res) {
+  const corsOrigin = resolveCorsOrigin(req);
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
-      'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
+      'Access-Control-Allow-Origin': corsOrigin,
       'Access-Control-Allow-Methods': 'GET,POST,PATCH,OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-admin-key, x-admin-setup-key',
+      Vary: 'Origin',
     });
     res.end();
     return true;
   }
   return false;
+}
+
+function resolveCorsOrigin(req) {
+  const origin = String(req?.headers?.origin || '').trim();
+  if (!origin) return CORS_ALLOWED_ORIGINS[0] || 'http://localhost:5173';
+  if (CORS_ALLOWED_ORIGINS.includes(origin)) return origin;
+  return CORS_ALLOWED_ORIGINS[0] || 'http://localhost:5173';
 }
 
 function isAdminAuthorized(req) {
