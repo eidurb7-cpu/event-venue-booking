@@ -57,6 +57,10 @@ export default function AdminDashboard() {
     approve: isDe ? 'Freigeben' : 'Approve',
     reject: isDe ? 'Ablehnen' : 'Reject',
     backToPending: isDe ? 'Zurueck auf Pending' : 'Back to pending',
+    viewDetails: isDe ? 'Details ansehen' : 'View details',
+    activeApplications: isDe ? 'Aktive Bewerbungen' : 'Active applications',
+    historyApplications: isDe ? 'Verlauf (approved)' : 'History (approved)',
+    reviewNote: isDe ? 'Review-Notiz (optional)' : 'Review note (optional)',
   };
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
@@ -78,7 +82,10 @@ export default function AdminDashboard() {
   const [auditLogs, setAuditLogs] = useState<AdminAuditLogRow[]>([]);
   const [releasingPayoutId, setReleasingPayoutId] = useState('');
   const [backfillingCompliance, setBackfillingCompliance] = useState(false);
+  const [reviewNoteDrafts, setReviewNoteDrafts] = useState<Record<string, string>>({});
   const appStatusByEmail = Object.fromEntries(applications.map((app) => [String(app.email || '').toLowerCase(), app.status]));
+  const activeApplications = applications.filter((a) => a.status !== 'approved');
+  const approvedHistory = applications.filter((a) => a.status === 'approved');
 
   const statusChartData = [
     { name: 'Open', value: requests.filter((r) => r.status === 'open').length },
@@ -214,16 +221,18 @@ export default function AdminDashboard() {
     }
   };
 
-  const updateApplication = async (applicationId: string, status: 'approved' | 'rejected' | 'pending_review') => {
+  const updateApplication = async (
+    applicationId: string,
+    status: 'approved' | 'rejected' | 'pending_review',
+    reviewNoteInput?: string,
+  ) => {
     setError('');
     try {
-      const reviewNote =
-        status === 'rejected'
-          ? window.prompt('Optional review note for vendor (shown in database):', '') || undefined
-          : undefined;
+      const reviewNote = String(reviewNoteInput || '').trim() || undefined;
       const result = await updateVendorApplicationStatus(adminToken, applicationId, status, reviewNote);
       setApplications((prev) => prev.map((app) => (app.id === applicationId ? result.application : app)));
       setSelectedApplication((prev) => (prev && prev.id === applicationId ? result.application : prev));
+      setReviewNoteDrafts((prev) => ({ ...prev, [applicationId]: '' }));
       // Refresh related sections in background, but do not block immediate UI update.
       void loadDashboard();
       if (status === 'approved') toast.success(isDe ? 'Vendor freigegeben.' : 'Vendor approved.');
@@ -498,8 +507,13 @@ export default function AdminDashboard() {
           <h2 className="text-xl font-semibold text-gray-900 mb-4">{tx.applications}</h2>
           {loading && <p className="text-gray-600">Lade Daten...</p>}
           {!loading && applications.length === 0 && <p className="text-gray-600">Keine Vendor-Bewerbungen gefunden.</p>}
+          {!loading && (
+            <p className="mb-3 text-sm text-gray-700">
+              {tx.activeApplications}: <strong>{activeApplications.length}</strong> | {tx.historyApplications}: <strong>{approvedHistory.length}</strong>
+            </p>
+          )}
           <div className="space-y-4">
-            {applications.map((app) => (
+            {activeApplications.map((app) => (
               <div key={app.id} className="rounded-lg border border-gray-200 p-4">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <p className="font-medium text-gray-900">{app.businessName}</p>
@@ -516,7 +530,7 @@ export default function AdminDashboard() {
                       onClick={() => openApplicationDetails(app)}
                       className="rounded-lg border border-purple-300 px-2 py-1 text-xs text-purple-700 hover:bg-purple-50"
                     >
-                      Vollansicht
+                      {tx.viewDetails}
                     </button>
                     <span
                       className={`text-xs px-2 py-1 rounded-full ${
@@ -560,17 +574,26 @@ export default function AdminDashboard() {
                     {app.reviewedAt && <p>Reviewed At: {new Date(app.reviewedAt).toLocaleString()}</p>}
                   </div>
                 )}
+                <div className="mt-3">
+                  <input
+                    type="text"
+                    placeholder={tx.reviewNote}
+                    value={reviewNoteDrafts[app.id] || ''}
+                    onChange={(e) => setReviewNoteDrafts((prev) => ({ ...prev, [app.id]: e.target.value }))}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  />
+                </div>
                 <div className="mt-3 flex items-center gap-2 flex-wrap">
                   <button
                     type="button"
-                    onClick={() => updateApplication(app.id, 'approved')}
+                    onClick={() => updateApplication(app.id, 'approved', reviewNoteDrafts[app.id])}
                     className="rounded-lg bg-green-600 text-white px-3 py-2 text-sm hover:bg-green-700"
                   >
                     {tx.approve}
                   </button>
                   <button
                     type="button"
-                    onClick={() => updateApplication(app.id, 'rejected')}
+                    onClick={() => updateApplication(app.id, 'rejected', reviewNoteDrafts[app.id])}
                     className="rounded-lg bg-red-100 text-red-700 px-3 py-2 text-sm hover:bg-red-200"
                   >
                     {tx.reject}
@@ -586,6 +609,28 @@ export default function AdminDashboard() {
               </div>
             ))}
           </div>
+          {!loading && approvedHistory.length > 0 && (
+            <div className="mt-6 rounded-lg border border-gray-200 p-4">
+              <h3 className="text-sm font-semibold text-gray-800 mb-3">{tx.historyApplications}</h3>
+              <div className="space-y-3">
+                {approvedHistory.map((app) => (
+                  <div key={app.id} className="rounded-lg border border-green-200 bg-green-50 p-3">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <p className="text-sm font-medium text-gray-900">{app.businessName}</p>
+                      <button
+                        type="button"
+                        onClick={() => openApplicationDetails(app)}
+                        className="rounded-lg border border-purple-300 px-2 py-1 text-xs text-purple-700 hover:bg-purple-50"
+                      >
+                        {tx.viewDetails}
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-600 mt-1">{app.contactName} | {app.email}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div id="admin-requests" className="bg-white rounded-xl border border-gray-200 p-6">
@@ -938,13 +983,23 @@ export default function AdminDashboard() {
                     {selectedApplication.reviewNote || '-'}
                   </p>
                 </div>
+                <div className="rounded-lg border border-gray-200 p-3">
+                  <p className="font-medium text-gray-900 mb-2">{tx.reviewNote}</p>
+                  <input
+                    type="text"
+                    placeholder={tx.reviewNote}
+                    value={reviewNoteDrafts[selectedApplication.id] || ''}
+                    onChange={(e) => setReviewNoteDrafts((prev) => ({ ...prev, [selectedApplication.id]: e.target.value }))}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  />
+                </div>
               </div>
 
               <div className="sticky bottom-0 z-10 flex items-center gap-2 border-t border-gray-200 bg-white px-5 py-4">
                 <button
                   type="button"
                   onClick={async () => {
-                    await updateApplication(selectedApplication.id, 'approved');
+                    await updateApplication(selectedApplication.id, 'approved', reviewNoteDrafts[selectedApplication.id]);
                     closeApplicationDetails();
                   }}
                   className="rounded-lg bg-green-600 text-white px-3 py-2 text-sm hover:bg-green-700"
@@ -954,7 +1009,7 @@ export default function AdminDashboard() {
                 <button
                   type="button"
                   onClick={async () => {
-                    await updateApplication(selectedApplication.id, 'rejected');
+                    await updateApplication(selectedApplication.id, 'rejected', reviewNoteDrafts[selectedApplication.id]);
                     closeApplicationDetails();
                   }}
                   className="rounded-lg bg-red-100 text-red-700 px-3 py-2 text-sm hover:bg-red-200"
