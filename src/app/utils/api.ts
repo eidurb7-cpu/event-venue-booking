@@ -43,6 +43,13 @@ export interface VendorOfferWithRequest extends VendorOffer {
   request: ServiceRequest;
 }
 
+export interface CustomerProfileDetails {
+  name: string;
+  email: string;
+  phone?: string;
+  address?: string;
+}
+
 export interface VendorApplication {
   id: string;
   status: 'pending_review' | 'approved' | 'rejected';
@@ -254,6 +261,17 @@ export function getMe() {
     vendorStatus?: string;
     vendorApplicationId?: string | null;
   }>;
+}
+
+export function getCustomerProfile() {
+  return request('/api/customer/profile', { method: 'GET' }) as Promise<{ profile: CustomerProfileDetails }>;
+}
+
+export function updateCustomerProfile(payload: { name: string; phone?: string; address?: string }) {
+  return request('/api/customer/profile', {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  }) as Promise<{ profile: CustomerProfileDetails }>;
 }
 
 async function request(path: string, options: RequestInit = {}) {

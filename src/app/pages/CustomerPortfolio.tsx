@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router';
-import { ServiceRequest, createStripeCheckoutSession, getCustomerRequests, setOfferStatus } from '../utils/api';
+import { ServiceRequest, createStripeCheckoutSession, getCustomerProfile, getCustomerRequests, setOfferStatus, updateCustomerProfile } from '../utils/api';
 import { getCurrentUser } from '../utils/auth';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -16,6 +16,13 @@ export default function CustomerPortfolio() {
     offerContact: isDe ? 'Kontakt fuer Angebote' : 'Offer contact',
     emailPlaceholder: isDe ? 'Deine E-Mail fuer den Portfolio-Zugriff' : 'Your email for portfolio access',
     load: isDe ? 'Portfolio laden' : 'Load portfolio',
+    refresh: isDe ? 'Aktualisieren' : 'Refresh',
+    profileTitle: isDe ? 'Kundendetails' : 'Customer details',
+    profileSave: isDe ? 'Details speichern' : 'Save details',
+    profileSaved: isDe ? 'Details gespeichert.' : 'Details saved.',
+    fullName: isDe ? 'Vollstaendiger Name' : 'Full name',
+    phone: isDe ? 'Telefon' : 'Phone',
+    addressLine: isDe ? 'Adresse' : 'Address',
     invoices: isDe ? 'Rechnungen anzeigen' : 'View invoices',
     loading: isDe ? 'Lade Anfragen...' : 'Loading requests...',
     empty: isDe ? 'Keine Anfragen fuer diese E-Mail gefunden.' : 'No requests found for this email.',
@@ -43,6 +50,13 @@ export default function CustomerPortfolio() {
   const [requests, setRequests] = useState<ServiceRequest[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [saveProfileLoading, setSaveProfileLoading] = useState(false);
+  const [profileMessage, setProfileMessage] = useState('');
+  const [profileForm, setProfileForm] = useState({
+    name: '',
+    phone: '',
+    address: '',
+  });
 
   useEffect(() => {
     const current = getCurrentUser();
@@ -52,7 +66,9 @@ export default function CustomerPortfolio() {
     setIsCustomerSession(true);
     setCustomerName(current.user.name || '');
     setCustomerEmail(current.user.email);
+    setProfileForm((prev) => ({ ...prev, name: current.user.name || '' }));
     loadRequests(current.user.email);
+    void loadProfile();
   }, []);
 
   const loadRequests = async (email: string) => {
@@ -69,6 +85,46 @@ export default function CustomerPortfolio() {
       setError(err instanceof Error ? err.message : 'Fehler beim Laden der Anfragen.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadProfile = async () => {
+    try {
+      const data = await getCustomerProfile();
+      setProfileForm({
+        name: data.profile.name || '',
+        phone: data.profile.phone || '',
+        address: data.profile.address || '',
+      });
+    } catch {
+      // Keep default values if profile endpoint fails.
+    }
+  };
+
+  const saveProfile = async () => {
+    if (!profileForm.name.trim()) {
+      setError('Name is required.');
+      return;
+    }
+    setSaveProfileLoading(true);
+    setError('');
+    setProfileMessage('');
+    try {
+      const updated = await updateCustomerProfile({
+        name: profileForm.name.trim(),
+        phone: profileForm.phone.trim(),
+        address: profileForm.address.trim(),
+      });
+      setProfileForm({
+        name: updated.profile.name || '',
+        phone: updated.profile.phone || '',
+        address: updated.profile.address || '',
+      });
+      setProfileMessage(tx.profileSaved);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save customer details.');
+    } finally {
+      setSaveProfileLoading(false);
     }
   };
 
@@ -105,43 +161,98 @@ export default function CustomerPortfolio() {
 
   return (
     <div className="min-h-screen bg-gray-50 py-6 sm:py-12">
-      <div className="container mx-auto px-4 max-w-5xl">
-        <div className="bg-white rounded-xl shadow-md p-5 sm:p-8 mb-6">
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">{tx.title}</h1>
-          <p className="text-gray-600 mb-5">{tx.subtitle}</p>
+      <div className="container mx-auto px-4 max-w-6xl">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 sm:p-8 mb-6">
+          <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-2">{tx.title}</h1>
+          <p className="text-base text-gray-600 mb-5">{tx.subtitle}</p>
           {isCustomerSession && (
-            <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
+            <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
               {tx.signedInAs} {customerName || customerEmail} ({customerEmail})
             </div>
           )}
           {customerEmail && (
-            <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+            <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
               {tx.offerContact}: <strong>{customerEmail}</strong>
             </div>
           )}
-          <input
-            type="email"
-            placeholder={tx.emailPlaceholder}
-            value={customerEmail}
-            onChange={(e) => {
-              const value = e.target.value;
-              setCustomerEmail(value);
-              if (!value.trim()) setRequests([]);
-            }}
-            disabled={isCustomerSession}
-            className="w-full md:w-[420px] rounded-lg border border-gray-300 px-3 py-2.5 disabled:bg-gray-100 disabled:text-gray-500"
-          />
-          <button
-            type="button"
-            onClick={() => loadRequests(customerEmail)}
-            className="mt-3 w-full sm:w-auto rounded-lg bg-purple-600 text-white px-4 py-2.5 hover:bg-purple-700"
-          >
-            {tx.load}
-          </button>
-          <div className="mt-3">
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-3 md:items-center">
+            <input
+              type="email"
+              placeholder={tx.emailPlaceholder}
+              value={customerEmail}
+              onChange={(e) => {
+                const value = e.target.value;
+                setCustomerEmail(value);
+                if (!value.trim()) setRequests([]);
+              }}
+              disabled={isCustomerSession}
+              className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base disabled:bg-gray-100 disabled:text-gray-500"
+            />
+            <button
+              type="button"
+              onClick={() => loadRequests(customerEmail)}
+              disabled={loading || !customerEmail.trim()}
+              className="rounded-lg bg-purple-600 text-white px-5 py-3 text-base font-semibold hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+            >
+              {tx.load}
+            </button>
+            <button
+              type="button"
+              onClick={() => loadRequests(customerEmail)}
+              disabled={loading || !customerEmail.trim()}
+              className="rounded-lg border border-gray-300 bg-white text-gray-800 px-5 py-3 text-base font-semibold hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
+            >
+              {tx.refresh}
+            </button>
+          </div>
+          <div className="mt-4">
             <Link to="/invoices" className="text-sm text-purple-600 hover:text-purple-700">
               {tx.invoices}
             </Link>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 sm:p-8 mb-6">
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-4">{tx.profileTitle}</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <input
+              type="text"
+              placeholder={tx.fullName}
+              value={profileForm.name}
+              onChange={(e) => setProfileForm((prev) => ({ ...prev, name: e.target.value }))}
+              className="rounded-lg border border-gray-300 px-4 py-3 text-base"
+            />
+            <input
+              type="text"
+              value={customerEmail}
+              readOnly
+              className="rounded-lg border border-gray-200 bg-gray-100 px-4 py-3 text-base text-gray-600"
+            />
+            <input
+              type="tel"
+              placeholder={tx.phone}
+              value={profileForm.phone}
+              onChange={(e) => setProfileForm((prev) => ({ ...prev, phone: e.target.value }))}
+              className="rounded-lg border border-gray-300 px-4 py-3 text-base"
+            />
+            <input
+              type="text"
+              placeholder={tx.addressLine}
+              value={profileForm.address}
+              onChange={(e) => setProfileForm((prev) => ({ ...prev, address: e.target.value }))}
+              className="rounded-lg border border-gray-300 px-4 py-3 text-base"
+            />
+          </div>
+          <div className="mt-4 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={saveProfile}
+              disabled={saveProfileLoading}
+              className="rounded-lg bg-purple-600 text-white px-5 py-3 text-base font-semibold hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+            >
+              {saveProfileLoading ? 'Saving...' : tx.profileSave}
+            </button>
+            {profileMessage && <p className="text-sm text-green-700">{profileMessage}</p>}
           </div>
         </div>
 
@@ -167,7 +278,7 @@ export default function CustomerPortfolio() {
           {requests.map((request) => (
             <div
               key={request.id}
-              className={`bg-white rounded-xl border p-4 sm:p-6 ${
+              className={`bg-white rounded-2xl border p-5 sm:p-7 shadow-sm ${
                 focusRequestId && request.id === focusRequestId
                   ? 'border-purple-400 ring-2 ring-purple-100'
                   : 'border-gray-200'
@@ -187,10 +298,10 @@ export default function CustomerPortfolio() {
                   {request.status}
                 </span>
               </div>
-              <p className="text-sm text-gray-700 mt-2">
+              <p className="text-base text-gray-700 mt-3">
                 {tx.services}: {request.selectedServices.join(', ')} | {tx.budget}: EUR {request.budget.toLocaleString()}
               </p>
-              <p className="text-sm text-gray-600 mt-1">{tx.contactEmail}: {request.customerEmail}</p>
+              <p className="text-sm text-gray-600 mt-2">{tx.contactEmail}: {request.customerEmail}</p>
               {request.customerPhone && <p className="text-sm text-gray-600 mt-1">{tx.contactPhone}: {request.customerPhone}</p>}
               {request.eventDate && (
                 <p className="text-sm text-gray-600 mt-1">{tx.eventDate}: {new Date(request.eventDate).toLocaleDateString()}</p>
@@ -203,11 +314,11 @@ export default function CustomerPortfolio() {
 
               <div className="mt-4 space-y-3">
                 {request.offers.length === 0 && (
-                  <div className="text-sm text-gray-500">{tx.noOffers}</div>
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">{tx.noOffers}</div>
                 )}
 
                 {request.offers.map((offer) => (
-                  <div key={offer.id} className="rounded-lg border border-gray-200 p-3 sm:p-4">
+                  <div key={offer.id} className="rounded-xl border border-gray-200 p-4 sm:p-5">
                     <div className="flex items-center justify-between gap-3 flex-wrap">
                       <p className="font-medium text-gray-900">{offer.vendorName}</p>
                       <span
@@ -232,25 +343,25 @@ export default function CustomerPortfolio() {
                     </p>
 
                     {offer.status === 'pending' && request.status === 'open' && (
-                      <div className="mt-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                      <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                         <button
                           type="button"
                           onClick={() => decide(request.id, offer.id, 'accepted')}
-                          className="rounded-lg bg-green-600 text-white px-3 py-2 text-sm hover:bg-green-700 w-full sm:w-auto"
+                          className="rounded-lg bg-green-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-green-700 w-full sm:w-auto"
                         >
                           {tx.accept}
                         </button>
                         <button
                           type="button"
                           onClick={() => decide(request.id, offer.id, 'ignored')}
-                          className="rounded-lg bg-gray-200 text-gray-800 px-3 py-2 text-sm hover:bg-gray-300 w-full sm:w-auto"
+                          className="rounded-lg bg-gray-200 text-gray-800 px-4 py-2.5 text-sm font-semibold hover:bg-gray-300 w-full sm:w-auto"
                         >
                           {tx.ignore}
                         </button>
                         <button
                           type="button"
                           onClick={() => decide(request.id, offer.id, 'declined')}
-                          className="rounded-lg bg-red-100 text-red-700 px-3 py-2 text-sm hover:bg-red-200 w-full sm:w-auto"
+                          className="rounded-lg bg-red-100 text-red-700 px-4 py-2.5 text-sm font-semibold hover:bg-red-200 w-full sm:w-auto"
                         >
                           {tx.decline}
                         </button>
@@ -265,7 +376,7 @@ export default function CustomerPortfolio() {
                         <button
                           type="button"
                           onClick={() => payOffer(request.id, offer.id)}
-                          className="rounded-lg bg-purple-600 text-white px-3 py-2 text-sm hover:bg-purple-700"
+                          className="rounded-lg bg-purple-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-purple-700"
                         >
                           {tx.pay}
                         </button>

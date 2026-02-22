@@ -2129,6 +2129,76 @@ createServer(async (req, res) => {
       return sendJson(res, 200, { user: base });
     }
 
+    if (req.method === 'GET' && path === '/api/customer/profile') {
+      const auth = requireJwt(req, 'customer');
+      const email = String(auth.email || '').trim();
+      if (!email) return sendJson(res, 401, { error: 'Unauthorized' });
+
+      const user = await prisma.user.findFirst({
+        where: { email: { equals: email, mode: 'insensitive' }, role: 'customer' },
+        include: { customerProfile: true },
+      });
+      if (!user) return sendJson(res, 404, { error: 'Customer not found' });
+
+      return sendJson(res, 200, {
+        profile: {
+          name: user.name || user.fullName || '',
+          email: user.email,
+          phone: user.customerProfile?.phone || '',
+          address: user.customerProfile?.address || '',
+        },
+      });
+    }
+
+    if (req.method === 'PATCH' && path === '/api/customer/profile') {
+      const auth = requireJwt(req, 'customer');
+      const email = String(auth.email || '').trim();
+      if (!email) return sendJson(res, 401, { error: 'Unauthorized' });
+
+      const body = await readBody(req);
+      const nextName = normalizeOptionalString(body?.name, 120);
+      const nextPhone = normalizeOptionalString(body?.phone, 60);
+      const nextAddress = normalizeOptionalString(body?.address, 300);
+      if (!nextName) return sendJson(res, 400, { error: 'Name is required' });
+
+      const updated = await prisma.$transaction(async (tx) => {
+        const user = await tx.user.findFirst({
+          where: { email: { equals: email, mode: 'insensitive' }, role: 'customer' },
+        });
+        if (!user) throw httpError(404, 'Customer not found');
+
+        const updatedUser = await tx.user.update({
+          where: { id: user.id },
+          data: {
+            name: nextName,
+            fullName: nextName,
+          },
+        });
+
+        const profile = await tx.customerProfile.upsert({
+          where: { userId: updatedUser.id },
+          update: {
+            phone: nextPhone || null,
+            address: nextAddress || null,
+          },
+          create: {
+            userId: updatedUser.id,
+            phone: nextPhone || null,
+            address: nextAddress || null,
+          },
+        });
+
+        return {
+          name: updatedUser.name || updatedUser.fullName || '',
+          email: updatedUser.email,
+          phone: profile.phone || '',
+          address: profile.address || '',
+        };
+      });
+
+      return sendJson(res, 200, { profile: updated });
+    }
+
     if (req.method === 'POST' && (path === '/api/auth/signup/vendor' || path === '/api/vendor/apply')) {
       if (enforceRateLimit(req, res, 'auth')) return;
       const body = await readBody(req);
