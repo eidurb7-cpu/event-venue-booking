@@ -61,6 +61,7 @@ export default function CustomerPortfolio() {
     phone: '',
     address: '',
   });
+  const customerInitial = String(customerName || customerEmail || 'C').trim().charAt(0).toUpperCase() || 'C';
 
   async function withGuard<T>(promise: Promise<T>, message: string): Promise<T> {
     let timeoutId: number | undefined;
@@ -212,7 +213,15 @@ export default function CustomerPortfolio() {
           <p className="text-base text-gray-600 mb-5">{tx.subtitle}</p>
           {isCustomerSession && (
             <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
-              {tx.signedInAs} {customerName || customerEmail} ({customerEmail})
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 rounded-full bg-green-600 text-white flex items-center justify-center font-semibold">
+                  {customerInitial}
+                </div>
+                <div>
+                  <p className="font-medium">{tx.signedInAs}</p>
+                  <p className="text-xs text-green-700">{customerEmail}</p>
+                </div>
+              </div>
             </div>
           )}
           {customerEmail && (

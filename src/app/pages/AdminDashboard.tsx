@@ -139,6 +139,7 @@ export default function AdminDashboard() {
   const [downloadingAccountingBookingId, setDownloadingAccountingBookingId] = useState('');
   const [downloadingAccountingPdfBookingId, setDownloadingAccountingPdfBookingId] = useState('');
   const [seedMessage, setSeedMessage] = useState('');
+  const adminInitial = String(adminName || adminEmail || 'A').trim().charAt(0).toUpperCase() || 'A';
   const appStatusByEmail = Object.fromEntries(applications.map((app) => [String(app.email || '').toLowerCase(), app.status]));
   const activeApplications = applications.filter((a) => a.status !== 'approved');
   const approvedHistory = applications.filter((a) => a.status === 'approved');
@@ -545,9 +546,17 @@ export default function AdminDashboard() {
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">{tx.title}</h1>
-              <p className="text-gray-600 mt-1">
-                {tx.backendSummary} {adminName ? `${tx.signedInAs} ${adminName}` : ''}
-              </p>
+              <p className="text-gray-600 mt-1">{tx.backendSummary}</p>
+              {adminName && (
+                <div className="mt-2 inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+                  <div className="h-7 w-7 rounded-full bg-blue-600 text-white flex items-center justify-center font-semibold">
+                    {adminInitial}
+                  </div>
+                  <div className="leading-tight">
+                    <p className="font-medium">{tx.signedInAs} {adminName}</p>
+                  </div>
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <button

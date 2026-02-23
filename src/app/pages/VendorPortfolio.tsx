@@ -10,13 +10,13 @@ import {
   VendorPost,
   acceptVendorContract,
   applyVendorOffer,
-  completeVendorTraining,
   createStripeConnectOnboarding,
   createVendorPost,
   declineVendorRequest,
   getVendorCompliance,
   getStripeConnectStatus,
   getOpenRequests,
+  getVendorInquiries,
   getVendorOffers,
   getVendorPosts,
   getVendorProfile,
@@ -54,6 +54,15 @@ function textMatchesVendor(text: string, keywordSet: Set<string>, categorySet: S
     if (hints.some((hint) => normalized.includes(hint))) return true;
   }
   return false;
+}
+
+function getVendorVisibleNote(rawNote: string) {
+  const text = String(rawNote || '').trim();
+  if (!text) return '';
+  const blockedPatterns = ['client email', 'selected services subtotal', 'venue selected', 'subtotal: eur'];
+  const lower = text.toLowerCase();
+  if (blockedPatterns.some((pattern) => lower.includes(pattern))) return '';
+  return text.length > 280 ? `${text.slice(0, 280)}...` : text;
 }
 
 export default function VendorPortfolio() {
@@ -100,6 +109,9 @@ export default function VendorPortfolio() {
     otherRequested: isDe ? 'Weitere angefragte Services' : 'Other requested services',
     requestDetails: isDe ? 'Anfrage-Details' : 'Request details',
     note: isDe ? 'Hinweis' : 'Note',
+    noSpecificMatch: isDe ? 'Passender Service erkannt' : 'Relevant service detected',
+    replies: isDe ? 'Admin-Antworten' : 'Admin replies',
+    noReplies: isDe ? 'Noch keine Antworten vom Admin.' : 'No admin replies yet.',
     editOffer: isDe ? 'Angebot bearbeiten' : 'Edit offer',
     save: isDe ? 'Speichern' : 'Save',
     cancel: isDe ? 'Abbrechen' : 'Cancel',
@@ -131,6 +143,9 @@ export default function VendorPortfolio() {
   const [savingOfferId, setSavingOfferId] = useState('');
   const [inquirySubject, setInquirySubject] = useState('');
   const [inquiryMessage, setInquiryMessage] = useState('');
+  const [vendorInquiries, setVendorInquiries] = useState<
+    Array<{ id: string; subject: string; message: string; adminReply?: string | null; status: string; createdAt: string }>
+  >([]);
   const [postForm, setPostForm] = useState({
     title: '',
     serviceName: '',
@@ -149,6 +164,7 @@ export default function VendorPortfolio() {
     availabilityJson: '{}',
   });
   const navigate = useNavigate();
+  const vendorInitial = String(vendorName || vendorEmail || 'V').trim().charAt(0).toUpperCase() || 'V';
 
   const loadVendorProfile = async (email: string) => {
     if (!email.trim()) return null;
@@ -177,6 +193,7 @@ export default function VendorPortfolio() {
     if (vendor) {
       await Promise.all([loadMyOffers(email.trim()), loadVendorComplianceStatus(email.trim())]);
       await loadStripeStatus(email.trim());
+      await loadVendorInquiries();
       if (vendor.compliance?.canPublish) {
         await Promise.all([loadOpenRequests(), loadPosts(email.trim())]);
       }
@@ -252,6 +269,15 @@ export default function VendorPortfolio() {
       setStripeStatus(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Fehler beim Laden des Stripe-Status.');
+    }
+  };
+
+  const loadVendorInquiries = async () => {
+    try {
+      const data = await getVendorInquiries();
+      setVendorInquiries(data.inquiries || []);
+    } catch {
+      // Non-blocking; vendor dashboard should still work if this fails.
     }
   };
 
@@ -334,7 +360,7 @@ export default function VendorPortfolio() {
         textMatchesVendor(service, vendorMatchProfile.keywords, vendorMatchProfile.categories),
       );
       byId[request.id] = {
-        matched: matched.length > 0 ? matched : selected.slice(0, 1),
+        matched,
         others: selected.filter((service) => !matched.includes(service)),
       };
     }
@@ -406,6 +432,7 @@ export default function VendorPortfolio() {
       });
       setInquirySubject('');
       setInquiryMessage('');
+      await loadVendorInquiries();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Fehler beim Senden der Anfrage an Admin.');
     }
@@ -586,6 +613,15 @@ export default function VendorPortfolio() {
       <div className="container mx-auto px-4 max-w-6xl space-y-6">
         <div className="bg-white rounded-xl shadow-md p-6">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">{tx.dashboard}</h1>
+          <div className="mb-2 inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+            <div className="h-7 w-7 rounded-full bg-emerald-600 text-white flex items-center justify-center font-semibold">
+              {vendorInitial}
+            </div>
+            <div className="leading-tight">
+              <p className="font-medium">{vendorName || vendorEmail}</p>
+              <p className="text-xs">{vendorEmail}</p>
+            </div>
+          </div>
           <p className="text-gray-600">Status: approved. {tx.statusApproved}</p>
           <p className="text-xs text-gray-500 mt-1">{tx.statusGated}</p>
           {error && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
@@ -651,26 +687,12 @@ export default function VendorPortfolio() {
             )}
             <button
               type="button"
-              disabled={Boolean(vendorCompliance?.trainingCompleted) || complianceLoading || !vendorEmail}
-              onClick={async () => {
-                if (!vendorEmail.trim()) return;
-                setComplianceLoading(true);
-                setError('');
-                try {
-                  const data = await completeVendorTraining({ vendorEmail: vendorEmail.trim() });
-                  setVendorCompliance(data.compliance);
-                  if (data.compliance.canPublish) {
-                    await Promise.all([loadOpenRequests(), loadPosts(vendorEmail.trim())]);
-                  }
-                } catch (err) {
-                  setError(err instanceof Error ? err.message : 'Failed to complete training.');
-                } finally {
-                  setComplianceLoading(false);
-                }
-              }}
+              disabled={true}
+              onClick={() => {}}
               className="rounded-lg bg-gray-900 text-white px-3 py-2 text-sm hover:bg-black disabled:opacity-60"
+              title="Training is confirmed by admin only"
             >
-              {vendorCompliance?.trainingCompleted ? 'Training completed' : (complianceLoading ? 'Saving...' : 'Mark training complete')}
+              {vendorCompliance?.trainingCompleted ? 'Training confirmed by admin' : 'Waiting for admin training confirmation'}
             </button>
             <button
               type="button"
@@ -758,6 +780,33 @@ export default function VendorPortfolio() {
             <button type="button" onClick={submitInquiry} className="rounded-lg bg-gray-900 text-white px-4 py-2.5 w-fit">
               Anfrage senden
             </button>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">{tx.replies}</h2>
+          {vendorInquiries.length === 0 && (
+            <p className="text-sm text-gray-600">{tx.noReplies}</p>
+          )}
+          <div className="space-y-3">
+            {vendorInquiries.map((inquiry) => (
+              <div key={inquiry.id} className="rounded-lg border border-gray-200 p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-medium text-gray-900">{inquiry.subject}</p>
+                  <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-700">{inquiry.status}</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">{new Date(inquiry.createdAt).toLocaleString()}</p>
+                <p className="text-sm text-gray-700 mt-2 whitespace-pre-wrap">{inquiry.message}</p>
+                {inquiry.adminReply && (
+                  <div className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700">
+                      {isDe ? 'Admin Antwort' : 'Admin reply'}
+                    </p>
+                    <p className="text-sm text-indigo-900 whitespace-pre-wrap mt-1">{inquiry.adminReply}</p>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
 
@@ -942,13 +991,17 @@ export default function VendorPortfolio() {
               <p className="text-sm text-orange-700 mt-1 font-medium">{tx.deadline}: {new Date(request.expiresAt).toLocaleString()}</p>
               <div className="mt-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-green-700">{tx.matchedForYou}</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {(requestHighlightsById[request.id]?.matched || []).map((service, index) => (
-                    <span key={`${request.id}-match-${index}`} className="rounded-full border border-green-200 bg-green-50 px-3 py-1 text-sm font-medium text-green-700">
-                      {service}
-                    </span>
-                  ))}
-                </div>
+                {(requestHighlightsById[request.id]?.matched || []).length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {(requestHighlightsById[request.id]?.matched || []).map((service, index) => (
+                      <span key={`${request.id}-match-${index}`} className="rounded-full border border-green-200 bg-green-50 px-3 py-1 text-sm font-medium text-green-700">
+                        {service}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-green-700">{tx.noSpecificMatch}</p>
+                )}
               </div>
               {(requestHighlightsById[request.id]?.others || []).length > 0 && (
                 <div className="mt-3">
@@ -962,10 +1015,10 @@ export default function VendorPortfolio() {
                   </div>
                 </div>
               )}
-              {request.notes && (
+              {getVendorVisibleNote(request.notes || '') && (
                 <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
                   <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">{tx.note}</p>
-                  <p className="text-sm text-gray-700">{request.notes}</p>
+                  <p className="text-sm text-gray-700">{getVendorVisibleNote(request.notes || '')}</p>
                 </div>
               )}
 

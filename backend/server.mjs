@@ -1058,17 +1058,34 @@ async function upsertVendorComplianceByEmail(vendorEmail, payload) {
 async function getVendorCompliance(vendorEmail) {
   const store = await readVendorComplianceStore();
   const key = normalizeVendorEmail(vendorEmail);
-  const fallback = {
+  const baseFallback = {
     ...defaultVendorCompliance(),
     ...(store.vendors[key] || {}),
   };
-  if (!supportsPrismaModel('vendorCompliance')) return fallback;
+  if (!supportsPrismaModel('vendorCompliance')) return baseFallback;
   try {
     const app = await getVendorApplicationByEmail(vendorEmail);
-    if (!app) return fallback;
+    if (!app) return baseFallback;
     const profile = await prisma.vendorProfile.findUnique({
       where: { vendorApplicationId: app.id },
     });
+    const fallback = {
+      ...baseFallback,
+      ...(profile
+        ? {
+            contractAccepted: Boolean(profile.contractAccepted) || Boolean(baseFallback.contractAccepted),
+            contractAcceptedAt:
+              profile.contractAcceptedAt
+                ? new Date(profile.contractAcceptedAt).toISOString()
+                : baseFallback.contractAcceptedAt || null,
+            trainingCompleted: Boolean(profile.trainingCompleted) || Boolean(baseFallback.trainingCompleted),
+            trainingCompletedAt:
+              profile.trainingCompletedAt
+                ? new Date(profile.trainingCompletedAt).toISOString()
+                : baseFallback.trainingCompletedAt || null,
+          }
+        : {}),
+    };
     if (!profile) return fallback;
     const row = await prisma.vendorCompliance.findUnique({
       where: { vendorId: profile.id },
@@ -1089,7 +1106,7 @@ async function getVendorCompliance(vendorEmail) {
       updatedAt: mapComplianceRowToPayload(row).updatedAt || fallback.updatedAt,
     };
   } catch (error) {
-    if (isPrismaTableMissingError(error)) return fallback;
+    if (isPrismaTableMissingError(error)) return baseFallback;
     throw error;
   }
 }
@@ -5544,29 +5561,10 @@ createServer(async (req, res) => {
       req.method === 'POST'
       && (path === '/api/vendor/compliance/training-complete' || path === '/api/vendor/training/complete')
     ) {
-      const auth = requireJwt(req, 'vendor');
-      const body = await readBody(req);
-      const vendorEmail = normalizeOptionalString(body.vendorEmail || auth.email, 320);
-      if (!vendorEmail) return sendJson(res, 400, { error: 'vendorEmail is required' });
-      if (String(auth.email || '').toLowerCase() !== vendorEmail.toLowerCase()) {
-        return sendJson(res, 403, { error: 'vendorEmail must match authenticated vendor' });
-      }
-      const vendor = await getVendorApplicationByEmail(vendorEmail);
-      if (!vendor) return sendJson(res, 404, { error: 'Vendor profile not found' });
-
-      const completed = await updateVendorCompliance(vendor.email, (current) => ({
-        ...current,
-        trainingCompleted: true,
-        trainingCompletedAt: new Date().toISOString(),
-      }));
-
-      await prisma.$transaction(async (tx) => {
-        const fresh = await tx.vendorApplication.findUnique({ where: { id: vendor.id } });
-        if (!fresh) return;
-        await syncVendorProfileActivationStatus(tx, fresh);
+      requireJwt(req, 'vendor');
+      return sendJson(res, 403, {
+        error: 'Training completion is admin-confirmed only. Please wait for admin approval.',
       });
-
-      return sendJson(res, 200, { compliance: buildVendorActivationState(vendor, completed) });
     }
 
     if (req.method === 'PATCH' && path.match(/^\/api\/requests\/[^/]+\/offers\/[^/]+$/)) {
