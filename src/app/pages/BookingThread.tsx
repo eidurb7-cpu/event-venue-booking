@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router';
-import { acceptBookingAgreement, createBookingCheckout, getBookingThread, BookingThread as BookingThreadType } from '../utils/api';
+import {
+  acceptBookingAgreement,
+  createBookingCheckout,
+  createMarketplaceReview,
+  getBookingThread,
+  BookingThread as BookingThreadType,
+} from '../utils/api';
 import { getCurrentUser } from '../utils/auth';
 import { OfferThread } from '../components/OfferThread';
 
@@ -17,6 +23,9 @@ export default function BookingThreadPage() {
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [agreementChecked, setAgreementChecked] = useState(false);
   const [agreementSaving, setAgreementSaving] = useState(false);
+  const [reviewDraftByItemId, setReviewDraftByItemId] = useState<Record<string, { rating: string; comment: string }>>({});
+  const [reviewSavingByItemId, setReviewSavingByItemId] = useState<Record<string, boolean>>({});
+  const [reviewMessageByItemId, setReviewMessageByItemId] = useState<Record<string, string>>({});
 
   const current = getCurrentUser();
   const actorRole = current?.role === 'vendor' ? 'vendor' : 'customer';
@@ -91,6 +100,35 @@ export default function BookingThreadPage() {
     }
   }
 
+  async function submitReview(bookingItemId: string, serviceId: string) {
+    if (!thread || actorRole !== 'customer' || !actorEmail) return;
+    const draft = reviewDraftByItemId[bookingItemId] || { rating: '', comment: '' };
+    const rating = Number(draft.rating || 0);
+    if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+      setReviewMessageByItemId((prev) => ({ ...prev, [bookingItemId]: 'Please select a rating between 1 and 5.' }));
+      return;
+    }
+    setReviewSavingByItemId((prev) => ({ ...prev, [bookingItemId]: true }));
+    setReviewMessageByItemId((prev) => ({ ...prev, [bookingItemId]: '' }));
+    try {
+      await createMarketplaceReview({
+        bookingId: thread.booking.id,
+        serviceId,
+        customerEmail: actorEmail,
+        rating,
+        comment: draft.comment?.trim() || undefined,
+      });
+      setReviewMessageByItemId((prev) => ({ ...prev, [bookingItemId]: 'Review saved.' }));
+    } catch (err) {
+      setReviewMessageByItemId((prev) => ({
+        ...prev,
+        [bookingItemId]: err instanceof Error ? err.message : 'Failed to save review.',
+      }));
+    } finally {
+      setReviewSavingByItemId((prev) => ({ ...prev, [bookingItemId]: false }));
+    }
+  }
+
   return (
     <section className="mx-auto w-full max-w-5xl px-4 py-8">
       <div className="rounded-xl border border-slate-200 bg-white p-4">
@@ -112,14 +150,59 @@ export default function BookingThreadPage() {
           <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">No items in this booking.</div>
         )}
         {!loading && thread?.items?.map((item) => (
-          <OfferThread
-            key={item.id}
-            bookingId={thread.booking.id}
-            item={item}
-            actorRole={actorRole}
-            actorEmail={actorEmail}
-            onUpdated={loadThread}
-          />
+          <div key={item.id} className="space-y-3">
+            <OfferThread
+              bookingId={thread.booking.id}
+              item={item}
+              actorRole={actorRole}
+              actorEmail={actorEmail}
+              onUpdated={loadThread}
+            />
+            {actorRole === 'customer' && thread.booking.status === 'completed' && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                <p className="text-sm font-semibold text-amber-900">Rate this service</p>
+                <p className="text-xs text-amber-800">{item.serviceTitle}</p>
+                <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-[160px_1fr_auto] md:items-center">
+                  <select
+                    value={reviewDraftByItemId[item.id]?.rating || ''}
+                    onChange={(e) => setReviewDraftByItemId((prev) => ({
+                      ...prev,
+                      [item.id]: { rating: e.target.value, comment: prev[item.id]?.comment || '' },
+                    }))}
+                    className="rounded-md border border-amber-300 px-3 py-2 text-sm"
+                  >
+                    <option value="">Select rating</option>
+                    <option value="5">5 - Excellent</option>
+                    <option value="4">4 - Good</option>
+                    <option value="3">3 - Okay</option>
+                    <option value="2">2 - Poor</option>
+                    <option value="1">1 - Bad</option>
+                  </select>
+                  <input
+                    type="text"
+                    placeholder="Optional comment"
+                    value={reviewDraftByItemId[item.id]?.comment || ''}
+                    onChange={(e) => setReviewDraftByItemId((prev) => ({
+                      ...prev,
+                      [item.id]: { rating: prev[item.id]?.rating || '', comment: e.target.value },
+                    }))}
+                    className="rounded-md border border-amber-300 px-3 py-2 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => submitReview(item.id, item.serviceId)}
+                    disabled={Boolean(reviewSavingByItemId[item.id])}
+                    className="rounded-md border border-amber-400 bg-white px-3 py-2 text-sm font-semibold text-amber-900 disabled:opacity-50"
+                  >
+                    {reviewSavingByItemId[item.id] ? 'Saving...' : 'Submit review'}
+                  </button>
+                </div>
+                {reviewMessageByItemId[item.id] && (
+                  <p className="mt-2 text-xs text-amber-900">{reviewMessageByItemId[item.id]}</p>
+                )}
+              </div>
+            )}
+          </div>
         ))}
       </div>
 
