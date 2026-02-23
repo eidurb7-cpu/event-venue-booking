@@ -24,6 +24,7 @@ import {
   getAdminVendorCompliance,
   getAdminVendorApplications,
   confirmVendorCompliance,
+  uploadFileToPublicStorage,
   seedAdminServices,
   seedAdminVendors,
   setOfferStatus,
@@ -134,6 +135,7 @@ export default function AdminDashboard() {
   const [reviewNoteDrafts, setReviewNoteDrafts] = useState<Record<string, string>>({});
   const [inquiryReplyDrafts, setInquiryReplyDrafts] = useState<Record<string, string>>({});
   const [inquiryAttachmentDrafts, setInquiryAttachmentDrafts] = useState<Record<string, string>>({});
+  const [inquiryFileDrafts, setInquiryFileDrafts] = useState<Record<string, File[]>>({});
   const [replyingInquiryId, setReplyingInquiryId] = useState('');
   const [confirmingComplianceField, setConfirmingComplianceField] = useState('');
   const [downloadingAccountingBookingId, setDownloadingAccountingBookingId] = useState('');
@@ -352,8 +354,12 @@ export default function AdminDashboard() {
     try {
       const reviewNote = String(reviewNoteInput || '').trim() || undefined;
       const result = await updateVendorApplicationStatus(adminToken, applicationId, status, reviewNote);
-      setApplications((prev) => prev.map((app) => (app.id === applicationId ? result.application : app)));
-      setSelectedApplication((prev) => (prev && prev.id === applicationId ? result.application : prev));
+      setApplications((prev) => prev.map((app) => (
+        app.id === applicationId
+          ? { ...app, ...result.application }
+          : app
+      )));
+      setSelectedApplication((prev) => (prev && prev.id === applicationId ? { ...prev, ...result.application } : prev));
       setReviewNoteDrafts((prev) => ({ ...prev, [applicationId]: '' }));
       // Refresh related sections in background, but do not block immediate UI update.
       void loadDashboard();
@@ -382,16 +388,33 @@ export default function AdminDashboard() {
     setConfirmingComplianceField(`${applicationId}:${field}`);
     try {
       const result = await confirmVendorCompliance(adminToken, applicationId, field);
+      const target = applications.find((app) => app.id === applicationId);
       setApplications((prev) => prev.map((app) => (
         app.id === applicationId
-          ? { ...app, compliance: result.compliance }
+          ? { ...app, compliance: result.compliance, ...(result as { application?: VendorApplication }).application }
           : app
       )));
       setSelectedApplication((prev) => (
         prev && prev.id === applicationId
-          ? { ...prev, compliance: result.compliance }
+          ? { ...prev, compliance: result.compliance, ...(result as { application?: VendorApplication }).application }
           : prev
       ));
+      if (target?.email) {
+        setCompliances((prev) => prev.map((row) => (
+          String(row.vendorEmail || '').toLowerCase() === String(target.email || '').toLowerCase()
+            ? {
+                ...row,
+                contractAccepted: result.compliance.contractAccepted,
+                contractAcceptedAt: result.compliance.contractAcceptedAt || null,
+                contractVersion: result.compliance.contractVersion || null,
+                contractAcceptedByUserId: result.compliance.contractAcceptedByUserId || null,
+                contractAcceptedIP: result.compliance.contractAcceptedIP || null,
+                trainingCompleted: result.compliance.trainingCompleted,
+                trainingCompletedAt: result.compliance.trainingCompletedAt || null,
+              }
+            : row
+        )));
+      }
       void loadDashboard();
       toast.success(field === 'contract'
         ? (isDe ? 'Vertrag bestaetigt.' : 'Contract confirmed.')
@@ -471,13 +494,21 @@ export default function AdminDashboard() {
       .split(',')
       .map((value) => value.trim())
       .filter(Boolean);
+    const files = inquiryFileDrafts[inquiryId] || [];
     setReplyingInquiryId(inquiryId);
     setError('');
     try {
-      const result = await replyAdminInquiry(adminToken, inquiryId, replyMessage, attachmentUrls);
+      const uploadedUrls = files.length > 0
+        ? await Promise.all(files.map(async (file) => {
+          const uploaded = await uploadFileToPublicStorage(file);
+          return uploaded.publicUrl;
+        }))
+        : [];
+      const result = await replyAdminInquiry(adminToken, inquiryId, replyMessage, [...attachmentUrls, ...uploadedUrls]);
       setInquiries((prev) => prev.map((row) => (row.id === inquiryId ? result.inquiry : row)));
       setInquiryReplyDrafts((prev) => ({ ...prev, [inquiryId]: '' }));
       setInquiryAttachmentDrafts((prev) => ({ ...prev, [inquiryId]: '' }));
+      setInquiryFileDrafts((prev) => ({ ...prev, [inquiryId]: [] }));
       if (result.emailSent === false) {
         toast.warning(isDe ? 'Antwort gespeichert, aber E-Mail wurde nicht zugestellt.' : 'Reply saved, but email was not delivered.');
       } else {
@@ -1254,6 +1285,23 @@ export default function AdminDashboard() {
                       onChange={(e) => setInquiryAttachmentDrafts((prev) => ({ ...prev, [inq.id]: e.target.value }))}
                       className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                     />
+                    <div className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm">
+                      <label className="block text-xs text-gray-500 mb-1">{isDe ? 'Dateien anhängen' : 'Attach files'}</label>
+                      <input
+                        type="file"
+                        multiple
+                        onChange={(e) => {
+                          const nextFiles = Array.from(e.target.files || []);
+                          setInquiryFileDrafts((prev) => ({ ...prev, [inq.id]: nextFiles }));
+                        }}
+                        className="block w-full text-sm"
+                      />
+                      {(inquiryFileDrafts[inq.id] || []).length > 0 && (
+                        <p className="mt-1 text-xs text-gray-600">
+                          {(inquiryFileDrafts[inq.id] || []).map((file) => file.name).join(', ')}
+                        </p>
+                      )}
+                    </div>
                   </div>
                   <button
                     type="button"

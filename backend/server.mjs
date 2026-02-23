@@ -4863,7 +4863,15 @@ createServer(async (req, res) => {
         confirmedAt: nowIso,
       });
 
-      return sendJson(res, 200, { compliance: buildVendorActivationState(vendor, compliance) });
+      const payoutReadiness = await getVendorPayoutReadiness(vendor);
+      return sendJson(res, 200, {
+        compliance: buildVendorActivationState(vendor, compliance),
+        application: {
+          ...vendor,
+          compliance: buildVendorActivationState(vendor, compliance),
+          payoutReadiness,
+        },
+      });
     }
 
     if (req.method === 'PATCH' && path.match(/^\/api\/admin\/vendor-applications\/[^/]+$/)) {
@@ -4911,7 +4919,17 @@ createServer(async (req, res) => {
           text: 'Deine Vendor-Anfrage wurde aktuell abgelehnt. Du kannst dich mit aktualisierten Informationen erneut bewerben.',
         });
       }
-      return sendJson(res, 200, { application: updated });
+      const refreshedApplication = await prisma.vendorApplication.findUnique({ where: { id: applicationId } });
+      const effectiveApp = refreshedApplication || updated;
+      const compliance = await getVendorCompliance(effectiveApp.email);
+      const payoutReadiness = await getVendorPayoutReadiness(effectiveApp);
+      return sendJson(res, 200, {
+        application: {
+          ...effectiveApp,
+          compliance: buildVendorActivationState(effectiveApp, compliance),
+          payoutReadiness,
+        },
+      });
     }
 
     if (req.method === 'GET' && path === '/api/admin/requests') {

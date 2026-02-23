@@ -996,7 +996,7 @@ export function confirmVendorCompliance(
   return request(`/api/admin/vendor-applications/${applicationId}/compliance/${field}/confirm`, {
     method: 'POST',
     headers: withAdminToken(adminKey),
-  }) as Promise<{ compliance: VendorCompliance }>;
+  }) as Promise<{ compliance: VendorCompliance; application?: VendorApplication }>;
 }
 
 export function getAdminRequests(adminKey: string) {
@@ -1131,6 +1131,31 @@ export function getVendorDocumentUploadUrl(payload: { filename: string; contentT
     method: 'POST',
     body: JSON.stringify(payload),
   }) as Promise<{ uploadUrl: string; fileKey: string; publicUrl: string }>;
+}
+
+export async function uploadFileToPublicStorage(file: File) {
+  const uploadMeta = await getVendorDocumentUploadUrl({
+    filename: file.name || 'attachment',
+    contentType: file.type || 'application/octet-stream',
+  });
+  const putRes = await fetch(uploadMeta.uploadUrl, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': file.type || 'application/octet-stream',
+    },
+    body: file,
+  });
+  if (!putRes.ok) {
+    throw new Error(`Failed to upload file "${file.name}" (${putRes.status})`);
+  }
+  if (!uploadMeta.publicUrl) {
+    throw new Error('Upload succeeded but public URL is missing. Configure R2_PUBLIC_BASE_URL.');
+  }
+  return {
+    fileKey: uploadMeta.fileKey,
+    publicUrl: uploadMeta.publicUrl,
+    filename: file.name,
+  };
 }
 
 export function createMarketplaceBookingRequest(payload: {
