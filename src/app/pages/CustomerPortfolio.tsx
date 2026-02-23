@@ -3,6 +3,8 @@ import { Link, useLocation } from 'react-router';
 import { ServiceRequest, cancelCustomerRequest, createStripeCheckoutSession, getCustomerProfile, getCustomerRequests, setOfferStatus, updateCustomerProfile } from '../utils/api';
 import { getCurrentUser } from '../utils/auth';
 import { useLanguage } from '../context/LanguageContext';
+import { useCart } from '../context/CartContext';
+import { services as mockServices } from '../data/mockData';
 
 const REQUEST_GUARD_MS = 12000;
 
@@ -61,7 +63,25 @@ export default function CustomerPortfolio() {
     phone: '',
     address: '',
   });
+  const { cart, updateServiceDate } = useCart();
   const customerInitial = String(customerName || customerEmail || 'C').trim().charAt(0).toUpperCase() || 'C';
+
+  const getServiceDateAvailability = (service: (typeof cart.services)[number]) => {
+    if (service.availabilityMap && service.serviceDate) {
+      const map = service.availabilityMap;
+      if (Object.prototype.hasOwnProperty.call(map, service.serviceDate)) {
+        return { known: true, available: Boolean(map[service.serviceDate]) };
+      }
+      return { known: false, available: true };
+    }
+    const sourceService = mockServices.find((entry) => entry.id === service.serviceId);
+    const provider = sourceService?.providers.find((entry) => entry.id === service.providerId);
+    if (!provider || !service.serviceDate) return { known: false, available: true };
+    return {
+      known: true,
+      available: !provider.bookedDates.includes(service.serviceDate),
+    };
+  };
 
   async function withGuard<T>(promise: Promise<T>, message: string): Promise<T> {
     let timeoutId: number | undefined;
@@ -308,6 +328,48 @@ export default function CustomerPortfolio() {
             </button>
             {profileMessage && <p className="text-sm text-green-700">{profileMessage}</p>}
           </div>
+        </div>
+
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 sm:p-8 mb-6">
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">Service Date Planner</h2>
+          <p className="text-sm text-gray-600 mb-4">Choose service dates here and availability updates from each service/post calendar.</p>
+          {cart.services.length === 0 ? (
+            <div className="text-sm text-gray-600">
+              No services in cart. <Link to="/services" className="text-purple-600 hover:text-purple-700">Add services</Link>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {cart.services.map((service) => (
+                <div key={service.id} className="rounded-lg border border-gray-200 p-3">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <p className="font-medium text-gray-900">{service.title}</p>
+                    <p className="text-sm text-gray-700">EUR {service.price.toLocaleString()}</p>
+                  </div>
+                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-md">
+                    <input
+                      type="date"
+                      value={service.serviceDate || ''}
+                      onChange={(e) => updateServiceDate(service.id, e.target.value)}
+                      className="rounded border border-gray-300 px-3 py-2 text-sm"
+                    />
+                    {(() => {
+                      const availability = getServiceDateAvailability(service);
+                      if (!service.serviceDate) return <p className="text-xs text-amber-700">Choose service date</p>;
+                      if (!availability.known) return <p className="text-xs text-gray-600">No explicit availability rule</p>;
+                      return (
+                        <p className={`text-xs ${availability.available ? 'text-green-700' : 'text-red-700'}`}>
+                          {availability.available ? 'Available on selected date' : 'Booked on selected date'}
+                        </p>
+                      );
+                    })()}
+                  </div>
+                </div>
+              ))}
+              <div className="pt-2">
+                <Link to="/cart" className="text-sm text-purple-600 hover:text-purple-700">Open cart</Link>
+              </div>
+            </div>
+          )}
         </div>
 
         {error && (
