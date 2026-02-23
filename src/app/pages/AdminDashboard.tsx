@@ -138,6 +138,7 @@ export default function AdminDashboard() {
   const [inquiryFileDrafts, setInquiryFileDrafts] = useState<Record<string, File[]>>({});
   const [replyingInquiryId, setReplyingInquiryId] = useState('');
   const [confirmingComplianceField, setConfirmingComplianceField] = useState('');
+  const [updatingApplicationAction, setUpdatingApplicationAction] = useState('');
   const [downloadingAccountingBookingId, setDownloadingAccountingBookingId] = useState('');
   const [downloadingAccountingPdfBookingId, setDownloadingAccountingPdfBookingId] = useState('');
   const [seedMessage, setSeedMessage] = useState('');
@@ -351,6 +352,7 @@ export default function AdminDashboard() {
     reviewNoteInput?: string,
   ) => {
     setError('');
+    setUpdatingApplicationAction(`${applicationId}:${status}`);
     try {
       const reviewNote = String(reviewNoteInput || '').trim() || undefined;
       const result = await updateVendorApplicationStatus(adminToken, applicationId, status, reviewNote);
@@ -370,6 +372,8 @@ export default function AdminDashboard() {
       const message = err instanceof Error ? err.message : 'Fehler beim Aktualisieren der Vendor-Anfrage.';
       setError(message);
       toast.error(message);
+    } finally {
+      setUpdatingApplicationAction('');
     }
   };
 
@@ -1327,7 +1331,7 @@ export default function AdminDashboard() {
               <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-gray-200 bg-white px-5 py-4">
                 <div>
                   <h3 className="text-xl font-semibold text-gray-900">{selectedApplication.businessName}</h3>
-                  <p className="text-sm text-gray-600">{tx.applications}: {selectedApplication.id}</p>
+                  <p className="text-sm text-gray-600">{isDe ? 'Bewerbungs-ID' : 'Application ID'}: {selectedApplication.id}</p>
                 </div>
                 <button
                   type="button"
@@ -1341,11 +1345,11 @@ export default function AdminDashboard() {
 
               <div className="space-y-4 px-5 py-4 text-sm text-gray-700">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <p><strong>Status:</strong> {selectedApplication.status}</p>
-                  <p><strong>Kontaktperson:</strong> {selectedApplication.contactName}</p>
-                  <p><strong>E-Mail:</strong> {selectedApplication.email}</p>
-                  <p><strong>Stadt:</strong> {selectedApplication.city || '-'}</p>
-                  <p><strong>Erstellt:</strong> {new Date(selectedApplication.createdAt).toLocaleString()}</p>
+                  <p><strong>{isDe ? 'Status' : 'Status'}:</strong> {selectedApplication.status}</p>
+                  <p><strong>{isDe ? 'Kontaktperson' : 'Contact person'}:</strong> {selectedApplication.contactName}</p>
+                  <p><strong>{isDe ? 'E-Mail' : 'Email'}:</strong> {selectedApplication.email}</p>
+                  <p><strong>{isDe ? 'Stadt' : 'City'}:</strong> {selectedApplication.city || '-'}</p>
+                  <p><strong>{isDe ? 'Erstellt' : 'Created'}:</strong> {new Date(selectedApplication.createdAt).toLocaleString()}</p>
                   <p><strong>{tx.reviewedAt}:</strong> {selectedApplication.reviewedAt ? new Date(selectedApplication.reviewedAt).toLocaleString() : '-'}</p>
                 </div>
 
@@ -1353,13 +1357,13 @@ export default function AdminDashboard() {
                   <p><strong>Website:</strong> {selectedApplication.websiteUrl || '-'}</p>
                   <p><strong>Portfolio:</strong> {selectedApplication.portfolioUrl || '-'}</p>
                   <p><strong>Stripe Connect:</strong> {selectedApplication.stripeAccountId || '-'}</p>
-                  <p><strong>Contract accepted:</strong> {selectedApplication.compliance?.contractAccepted ? 'yes' : 'no'}</p>
-                  <p><strong>Training completed:</strong> {selectedApplication.compliance?.trainingCompleted ? 'yes' : 'no'}</p>
-                  <p><strong>Can publish:</strong> {selectedApplication.compliance?.canPublish ? 'yes' : 'no'}</p>
-                  <p><strong>Dokumentname:</strong> {selectedApplication.documentName || '-'}</p>
+                  <p><strong>{isDe ? 'Vertrag akzeptiert' : 'Contract accepted'}:</strong> {selectedApplication.compliance?.contractAccepted ? (isDe ? 'ja' : 'yes') : (isDe ? 'nein' : 'no')}</p>
+                  <p><strong>{isDe ? 'Training abgeschlossen' : 'Training completed'}:</strong> {selectedApplication.compliance?.trainingCompleted ? (isDe ? 'ja' : 'yes') : (isDe ? 'nein' : 'no')}</p>
+                  <p><strong>{isDe ? 'Kann veröffentlichen' : 'Can publish'}:</strong> {selectedApplication.compliance?.canPublish ? (isDe ? 'ja' : 'yes') : (isDe ? 'nein' : 'no')}</p>
+                  <p><strong>{isDe ? 'Dokumentname' : 'Document name'}:</strong> {selectedApplication.documentName || '-'}</p>
                   {selectedApplication.documentUrl ? (
                     <p>
-                      <strong>Dokument:</strong>{' '}
+                      <strong>{isDe ? 'Dokument' : 'Document'}:</strong>{' '}
                       <a
                         className="text-purple-700 underline break-all"
                         href={selectedApplication.documentUrl}
@@ -1380,26 +1384,38 @@ export default function AdminDashboard() {
                     <button
                       type="button"
                       onClick={() => confirmCompliance(selectedApplication.id, 'contract')}
-                      disabled={Boolean(selectedApplication.compliance?.contractAccepted) || confirmingComplianceField === `${selectedApplication.id}:contract`}
+                      disabled={
+                        selectedApplication.status !== 'approved'
+                        || Boolean(selectedApplication.compliance?.contractAccepted)
+                        || confirmingComplianceField === `${selectedApplication.id}:contract`
+                      }
                       className="rounded-lg bg-indigo-600 text-white px-3 py-2 text-sm hover:bg-indigo-700 disabled:opacity-60"
                     >
                       {selectedApplication.compliance?.contractAccepted
                         ? (isDe ? 'Vertrag bestaetigt' : 'Contract confirmed')
+                        : (selectedApplication.status !== 'approved'
+                          ? (isDe ? 'Warte auf Freigabe' : 'Wait for approval')
                         : (confirmingComplianceField === `${selectedApplication.id}:contract`
                           ? (isDe ? 'Bestaetige...' : 'Confirming...')
-                          : (isDe ? 'Vertrag bestaetigen' : 'Confirm contract'))}
+                          : (isDe ? 'Vertrag bestaetigen' : 'Confirm contract')))}
                     </button>
                     <button
                       type="button"
                       onClick={() => confirmCompliance(selectedApplication.id, 'training')}
-                      disabled={Boolean(selectedApplication.compliance?.trainingCompleted) || confirmingComplianceField === `${selectedApplication.id}:training`}
+                      disabled={
+                        selectedApplication.status !== 'approved'
+                        || Boolean(selectedApplication.compliance?.trainingCompleted)
+                        || confirmingComplianceField === `${selectedApplication.id}:training`
+                      }
                       className="rounded-lg bg-slate-900 text-white px-3 py-2 text-sm hover:bg-black disabled:opacity-60"
                     >
                       {selectedApplication.compliance?.trainingCompleted
                         ? (isDe ? 'Training bestaetigt' : 'Training confirmed')
+                        : (selectedApplication.status !== 'approved'
+                          ? (isDe ? 'Warte auf Freigabe' : 'Wait for approval')
                         : (confirmingComplianceField === `${selectedApplication.id}:training`
                           ? (isDe ? 'Bestaetige...' : 'Confirming...')
-                          : (isDe ? 'Training bestaetigen' : 'Confirm training'))}
+                          : (isDe ? 'Training bestaetigen' : 'Confirm training')))}
                     </button>
                   </div>
                 </div>
@@ -1434,34 +1450,46 @@ export default function AdminDashboard() {
                   type="button"
                   onClick={async () => {
                     await updateApplication(selectedApplication.id, 'approved', reviewNoteDrafts[selectedApplication.id]);
-                    closeApplicationDetails();
                   }}
                   title={isDe ? 'Anbieter freigeben' : 'Approve this vendor'}
-                  className="rounded-lg bg-green-600 text-white px-3 py-2 text-sm hover:bg-green-700"
+                  disabled={selectedApplication.status === 'approved' || updatingApplicationAction === `${selectedApplication.id}:approved`}
+                  className="rounded-lg bg-green-600 text-white px-3 py-2 text-sm hover:bg-green-700 disabled:opacity-60"
                 >
-                  {tx.approve}
+                  {selectedApplication.status === 'approved'
+                    ? (isDe ? 'Bereits freigegeben' : 'Already approved')
+                    : (updatingApplicationAction === `${selectedApplication.id}:approved`
+                      ? (isDe ? 'Freigabe...' : 'Approving...')
+                      : tx.approve)}
                 </button>
                 <button
                   type="button"
                   onClick={async () => {
                     await updateApplication(selectedApplication.id, 'rejected', reviewNoteDrafts[selectedApplication.id]);
-                    closeApplicationDetails();
                   }}
                   title={isDe ? 'Bewerbung ablehnen' : 'Reject this application'}
-                  className="rounded-lg bg-red-100 text-red-700 px-3 py-2 text-sm hover:bg-red-200"
+                  disabled={selectedApplication.status === 'rejected' || updatingApplicationAction === `${selectedApplication.id}:rejected`}
+                  className="rounded-lg bg-red-100 text-red-700 px-3 py-2 text-sm hover:bg-red-200 disabled:opacity-60"
                 >
-                  {tx.reject}
+                  {selectedApplication.status === 'rejected'
+                    ? (isDe ? 'Bereits abgelehnt' : 'Already rejected')
+                    : (updatingApplicationAction === `${selectedApplication.id}:rejected`
+                      ? (isDe ? 'Lehne ab...' : 'Rejecting...')
+                      : tx.reject)}
                 </button>
                 <button
                   type="button"
                   onClick={async () => {
                     await updateApplication(selectedApplication.id, 'pending_review');
-                    closeApplicationDetails();
                   }}
                   title={isDe ? 'Zurück in Prüfung setzen' : 'Move back to pending review'}
-                  className="rounded-lg bg-gray-200 text-gray-800 px-3 py-2 text-sm hover:bg-gray-300"
+                  disabled={selectedApplication.status === 'pending_review' || updatingApplicationAction === `${selectedApplication.id}:pending_review`}
+                  className="rounded-lg bg-gray-200 text-gray-800 px-3 py-2 text-sm hover:bg-gray-300 disabled:opacity-60"
                 >
-                  {tx.backToPending}
+                  {selectedApplication.status === 'pending_review'
+                    ? (isDe ? 'Bereits ausstehend' : 'Already pending')
+                    : (updatingApplicationAction === `${selectedApplication.id}:pending_review`
+                      ? (isDe ? 'Setze ausstehend...' : 'Setting pending...')
+                      : tx.backToPending)}
                 </button>
               </div>
             </div>
