@@ -14,7 +14,8 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#ffffff"
-      }
+      },
+      "package": "com.anonymous.eventvenuemobile"
     },
     "extra": {
       "apiBaseUrl": "https://event-venue-booking.vercel.app"
