@@ -328,6 +328,7 @@ export default function VendorPortfolio() {
       createdAt: string;
     }>
   >([]);
+  const [showOnlyMatchedRequests, setShowOnlyMatchedRequests] = useState(true);
   const [postForm, setPostForm] = useState({
     title: '',
     serviceName: '',
@@ -584,9 +585,9 @@ export default function VendorPortfolio() {
   }, [openRequests, vendorMatchProfile.categories, vendorMatchProfile.keywords]);
 
   const visibleOpenRequests = useMemo(() => {
-    if (vendorServices.length === 0) return openRequests;
+    if (!showOnlyMatchedRequests || vendorServices.length === 0) return openRequests;
     return openRequests.filter((request) => (requestHighlightsById[request.id]?.matched || []).length > 0);
-  }, [openRequests, requestHighlightsById, vendorServices.length]);
+  }, [openRequests, requestHighlightsById, showOnlyMatchedRequests, vendorServices.length]);
 
   const declineRequest = async (requestId: string) => {
     if (!vendorCompliance?.canPublish) {
@@ -1322,6 +1323,20 @@ export default function VendorPortfolio() {
         <div className="space-y-4">
           <h2 className="text-2xl font-semibold text-gray-900">{tx.openRequests}</h2>
           <p className="text-sm text-gray-600">{tx.requestFlowHint}</p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowOnlyMatchedRequests((prev) => !prev)}
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-50"
+            >
+              {showOnlyMatchedRequests ? 'Showing matched only' : 'Showing all open requests'}
+            </button>
+            <p className="text-xs text-gray-500">
+              {showOnlyMatchedRequests
+                ? 'Requests are filtered to your posted/provided services.'
+                : 'All open requests are visible.'}
+            </p>
+          </div>
           {loading && (
             <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-600">
               {tx.loadingOpenRequests}

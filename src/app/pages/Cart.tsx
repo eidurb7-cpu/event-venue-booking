@@ -21,6 +21,10 @@ type SentServiceRequest = {
   status: 'request_sent';
 };
 
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+}
+
 export default function Cart() {
   const { language } = useLanguage();
   const isDe = language === 'de';
@@ -62,7 +66,7 @@ export default function Cart() {
   const venueTotal = cart.venue?.price ?? 0;
   const isCheckoutReady =
     Boolean(bookingForm.name.trim())
-    && Boolean(bookingForm.email.trim())
+    && isValidEmail(bookingForm.email)
     && Boolean(bookingForm.address.trim())
     && Boolean(bookingForm.city.trim())
     && Boolean(bookingForm.postalCode.trim())
@@ -319,6 +323,10 @@ export default function Cart() {
     }
     if (!bookingForm.name.trim() || !bookingForm.email.trim()) {
       raiseValidation('Please enter name and email.');
+      return;
+    }
+    if (!isValidEmail(bookingForm.email)) {
+      raiseValidation('Please enter a valid email address.');
       return;
     }
     if (!bookingForm.address.trim()) {
@@ -804,7 +812,7 @@ export default function Cart() {
               </p>
                 <button
                   type="submit"
-                  disabled={payNowLoading}
+                  disabled={payNowLoading || !isCheckoutReady}
                   className="inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 >
                   {payNowLoading ? 'Starting checkout...' : 'Pay now'}

@@ -16,6 +16,10 @@ type SavedVenueState = {
   estimatedGuests: string;
 };
 
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+}
+
 export default function VenueDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -275,6 +279,10 @@ export default function VenueDetail() {
       alert('Please enter name and email.');
       return;
     }
+    if (!isValidEmail(bookingForm.email)) {
+      alert('Please enter a valid email address.');
+      return;
+    }
     if (!bookingForm.address.trim()) {
       alert('Please enter billing address before checkout.');
       return;
@@ -316,6 +324,11 @@ export default function VenueDetail() {
 
   const hasCateringSelected = selectedServices.some((entry) => entry.service?.category === 'catering');
   const isVenueAvailable = selectedDate ? !venue.bookedDates.includes(selectedDate) : true;
+  const isVenueCheckoutReady =
+    Boolean(selectedDate)
+    && Boolean(bookingForm.name.trim())
+    && isValidEmail(bookingForm.email)
+    && Boolean(bookingForm.address.trim());
   const today = new Date().toISOString().split('T')[0];
   const selectedDateObj = selectedDate ? new Date(`${selectedDate}T00:00:00`) : undefined;
   const displayDate = selectedDateObj
@@ -529,9 +542,14 @@ export default function VenueDetail() {
                 <input type="text" required placeholder="Address" value={bookingForm.address} onChange={(e) => setBookingForm((p) => ({ ...p, address: e.target.value }))} className="rounded-lg border border-gray-300 px-3 py-2.5" />
                 <input type="text" placeholder="Short note (optional)" value={bookingForm.notes} onChange={(e) => setBookingForm((p) => ({ ...p, notes: e.target.value }))} className="rounded-lg border border-gray-300 px-3 py-2.5" />
               </div>
-              <button type="submit" disabled={!cart.venue || payNowLoading || isBookingBlockedForRole} className="inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed">
+              <button type="submit" disabled={!cart.venue || payNowLoading || isBookingBlockedForRole || !isVenueCheckoutReady} className="inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed">
                 {payNowLoading ? 'Starting checkout...' : 'Pay now'}
               </button>
+              {!isVenueCheckoutReady && (
+                <p className="text-xs text-amber-700">
+                  Choose date and fill valid name, email, and address to pay now.
+                </p>
+              )}
             </form>
           )}
         </div>
