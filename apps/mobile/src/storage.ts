@@ -4,8 +4,11 @@ const MOBILE_TOKEN_KEY = 'eventvenue_mobile_token';
 const MOBILE_ROLE_KEY = 'eventvenue_mobile_role';
 const MOBILE_EMAIL_KEY = 'eventvenue_mobile_email';
 const MOBILE_CUSTOMER_PLAN_KEY = 'eventvenue_mobile_customer_plan';
+const MOBILE_VENDOR_CALENDAR_PREFS_KEY = 'eventvenue_mobile_vendor_calendar_prefs';
 
-export async function saveSession(token: string, role: string, email: string) {
+export type MobileRole = 'customer' | 'vendor' | 'admin' | '';
+
+export async function saveSession(token: string, role: MobileRole, email: string) {
   await AsyncStorage.multiSet([
     [MOBILE_TOKEN_KEY, token],
     [MOBILE_ROLE_KEY, role],
@@ -21,7 +24,7 @@ export async function loadSession() {
   const [token, role, email] = await AsyncStorage.multiGet([MOBILE_TOKEN_KEY, MOBILE_ROLE_KEY, MOBILE_EMAIL_KEY]);
   return {
     token: token?.[1] || '',
-    role: role?.[1] || '',
+    role: (role?.[1] || '') as MobileRole,
     email: email?.[1] || '',
   };
 }
@@ -49,5 +52,26 @@ export async function loadCustomerPlan() {
     return parsed.filter((item) => item && typeof item.id === 'string');
   } catch {
     return [];
+  }
+}
+
+export type VendorCalendarPrefs = {
+  bulkStartDate?: string;
+  bulkDays?: number;
+};
+
+export async function saveVendorCalendarPrefs(prefs: VendorCalendarPrefs) {
+  await AsyncStorage.setItem(MOBILE_VENDOR_CALENDAR_PREFS_KEY, JSON.stringify(prefs));
+}
+
+export async function loadVendorCalendarPrefs() {
+  const raw = await AsyncStorage.getItem(MOBILE_VENDOR_CALENDAR_PREFS_KEY);
+  if (!raw) return {} as VendorCalendarPrefs;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    return parsed as VendorCalendarPrefs;
+  } catch {
+    return {};
   }
 }

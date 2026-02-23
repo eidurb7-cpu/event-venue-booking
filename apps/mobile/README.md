@@ -27,8 +27,26 @@ Override with env var when needed:
 
 ## Current flows
 
-- Customer: load requests by email
-- Vendor: login + dashboard snapshot (profile/compliance/posts)
-- Admin: login + overview snapshot
+- Customer:
+  - login
+  - profile load + update
+  - requests load
+  - browse public vendor posts
+  - select service date and see availability state
+  - save planner (persistent across app restarts)
+- Vendor:
+  - login
+  - compliance/status dashboard
+  - profile edit (address, website, intro, etc.)
+  - real file uploads for profile image + gallery (via backend upload URL flow)
+  - create service posts with availability calendar rules:
+    - single-date green/red toggle
+    - bulk date-range green/red generation
+  - offers inbox snapshot
+  - inquiry thread to admin
+- Admin:
+  - login
+  - overview metrics snapshot
+  - vendor compliance confirmations (contract/training)
 
 This app lives in a separate folder and does not replace the existing web app.
