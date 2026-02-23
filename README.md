@@ -23,6 +23,17 @@ This is a code bundle for Event Venue Booking Website. The original project is a
 Frontend runs on `http://localhost:5173`.
 Backend runs on `http://localhost:4000`.
 
+## Mobile app (Expo)
+
+A real mobile app scaffold is available at `apps/mobile` using the same backend/API.
+
+1. `cd apps/mobile`
+2. `npm install`
+3. `npm run start`
+
+Optional API override for local backend:
+`EXPO_PUBLIC_API_BASE_URL=http://localhost:4000`
+
 ## Optional environment variables
 
 - `VITE_API_BASE_URL` (frontend), default: `http://localhost:4000`

@@ -1,1 +1,3 @@
 .vercel
+apps/mobile/node_modules
+apps/mobile/.expo
