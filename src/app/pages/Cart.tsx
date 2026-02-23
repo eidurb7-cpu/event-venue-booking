@@ -172,8 +172,10 @@ export default function Cart() {
         });
         lastSavedProfileSnapshotRef.current = snapshot;
         setProfileSyncStatus('saved');
+        window.setTimeout(() => setProfileSyncStatus('idle'), 1200);
       } catch {
-        setProfileSyncStatus('error');
+        // Autosave should be non-blocking; keep UI clean and retry on next change.
+        setProfileSyncStatus('idle');
       }
     }, 700);
 

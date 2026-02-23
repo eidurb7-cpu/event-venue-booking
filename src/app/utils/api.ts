@@ -57,8 +57,11 @@ export interface VendorApplication {
   contactName: string;
   email: string;
   city?: string | null;
+  address?: string | null;
   websiteUrl?: string | null;
   portfolioUrl?: string | null;
+  profileImageUrl?: string | null;
+  providedServices?: string[];
   businessIntro?: string | null;
   documentName?: string | null;
   documentKey?: string | null;
@@ -506,6 +509,22 @@ export function updateVendorOffer(
 
 export function getVendorProfile(email: string) {
   return request(`/api/vendor/profile?email=${encodeURIComponent(email)}`) as Promise<{ vendor: VendorApplication }>;
+}
+
+export function updateVendorProfile(payload: {
+  vendorEmail: string;
+  contactName?: string;
+  city?: string;
+  address?: string;
+  websiteUrl?: string;
+  portfolioUrl?: string;
+  businessIntro?: string;
+  profileImageUrl?: string;
+}) {
+  return request('/api/vendor/profile', {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  }) as Promise<{ vendor: VendorApplication }>;
 }
 
 export function getVendorCompliance(vendorEmail: string) {
@@ -1031,6 +1050,7 @@ export function getAdminInquiries(adminToken: string) {
       subject: string;
       message: string;
       adminReply?: string | null;
+      adminReplyAttachments?: string[];
       status: string;
       createdAt: string;
     }>;
@@ -1054,6 +1074,7 @@ export function replyAdminInquiry(
       subject: string;
       message: string;
       adminReply?: string | null;
+      adminReplyAttachments?: string[];
       status: string;
       createdAt: string;
     };
@@ -1071,6 +1092,7 @@ export function getVendorInquiries() {
       subject: string;
       message: string;
       adminReply?: string | null;
+      adminReplyAttachments?: string[];
       status: string;
       createdAt: string;
     }>;

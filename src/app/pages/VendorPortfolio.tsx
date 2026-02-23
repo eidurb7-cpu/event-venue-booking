@@ -21,8 +21,10 @@ import {
   getVendorPosts,
   getVendorProfile,
   sendVendorInquiry,
+  updateVendorProfile,
   updateVendorOffer,
   updateVendorPost,
+  uploadFileToPublicStorage,
 } from '../utils/api';
 import { clearCurrentUser, getCurrentUser } from '../utils/auth';
 import { useLanguage } from '../context/LanguageContext';
@@ -68,6 +70,162 @@ function getVendorVisibleNote(rawNote: string) {
 function isUnauthorizedError(err: unknown) {
   const msg = err instanceof Error ? err.message : String(err || '');
   return /unauthorized|401/i.test(msg);
+}
+
+type AvailabilityMap = Record<string, boolean>;
+
+const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function toLocalIsoDate(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function parseIsoDate(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const [, y, m, d] = match;
+  const date = new Date(Number(y), Number(m) - 1, Number(d));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function normalizeAvailability(value: unknown): AvailabilityMap {
+  if (!value || typeof value !== 'object') return {};
+  const input = value as Record<string, unknown>;
+  const normalized: AvailabilityMap = {};
+  Object.entries(input).forEach(([key, raw]) => {
+    if (typeof raw !== 'boolean') return;
+    const date = parseIsoDate(key);
+    if (!date) return;
+    normalized[toLocalIsoDate(date)] = raw;
+  });
+  return normalized;
+}
+
+function shiftMonth(base: Date, amount: number) {
+  return new Date(base.getFullYear(), base.getMonth() + amount, 1);
+}
+
+function buildMonthGrid(month: Date) {
+  const monthStart = new Date(month.getFullYear(), month.getMonth(), 1);
+  const monthEnd = new Date(month.getFullYear(), month.getMonth() + 1, 0);
+  const startWeekday = (monthStart.getDay() + 6) % 7;
+  const daysInMonth = monthEnd.getDate();
+  const totalCells = Math.ceil((startWeekday + daysInMonth) / 7) * 7;
+  const firstCell = new Date(month.getFullYear(), month.getMonth(), 1 - startWeekday);
+  return Array.from({ length: totalCells }).map((_, index) => {
+    const date = new Date(firstCell.getFullYear(), firstCell.getMonth(), firstCell.getDate() + index);
+    return {
+      iso: toLocalIsoDate(date),
+      label: date.getDate(),
+      inMonth: date.getMonth() === month.getMonth(),
+    };
+  });
+}
+
+function AvailabilityCalendar({
+  value,
+  onChange,
+  title,
+}: {
+  value: AvailabilityMap;
+  onChange: (next: AvailabilityMap) => void;
+  title: string;
+}) {
+  const [monthCursor, setMonthCursor] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const monthGrid = useMemo(() => buildMonthGrid(monthCursor), [monthCursor]);
+
+  const selectedCount = useMemo(() => Object.keys(value).length, [value]);
+  const availableCount = useMemo(
+    () => Object.values(value).filter((entry) => entry === true).length,
+    [value],
+  );
+  const blockedCount = selectedCount - availableCount;
+
+  const toggleDay = (iso: string) => {
+    const current = value[iso];
+    const next: AvailabilityMap = { ...value, [iso]: current === true ? false : true };
+    onChange(next);
+  };
+
+  return (
+    <div className="rounded-lg border border-gray-200 p-3 mb-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <p className="text-sm font-medium text-gray-800">{title}</p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setMonthCursor((month) => shiftMonth(month, -1))}
+            className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50"
+          >
+            Prev
+          </button>
+          <p className="text-sm font-medium min-w-[120px] text-center">
+            {MONTH_LABELS[monthCursor.getMonth()]} {monthCursor.getFullYear()}
+          </p>
+          <button
+            type="button"
+            onClick={() => setMonthCursor((month) => shiftMonth(month, 1))}
+            className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50"
+          >
+            Next
+          </button>
+        </div>
+      </div>
+      <div className="grid grid-cols-7 gap-1 mb-1">
+        {WEEKDAY_LABELS.map((label) => (
+          <div key={label} className="text-[11px] font-semibold text-gray-500 text-center py-1">
+            {label}
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {monthGrid.map((day) => {
+          const state = value[day.iso];
+          const stateClasses =
+            state === true
+              ? 'bg-green-100 border-green-400 text-green-900'
+              : state === false
+                ? 'bg-red-100 border-red-400 text-red-900'
+                : 'bg-white border-gray-200 text-gray-800';
+          return (
+            <button
+              key={day.iso}
+              type="button"
+              onClick={() => toggleDay(day.iso)}
+              className={`h-9 rounded border text-xs ${stateClasses} ${day.inMonth ? '' : 'opacity-45'}`}
+              title={`${day.iso}${state === true ? ' available' : state === false ? ' blocked' : ''}`}
+            >
+              {day.label}
+            </button>
+          );
+        })}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
+        <span className="inline-flex items-center gap-1 text-gray-700">
+          <span className="inline-block w-3 h-3 rounded-sm border border-green-400 bg-green-100" />
+          Available: {availableCount}
+        </span>
+        <span className="inline-flex items-center gap-1 text-gray-700">
+          <span className="inline-block w-3 h-3 rounded-sm border border-red-400 bg-red-100" />
+          Blocked: {blockedCount}
+        </span>
+        <button
+          type="button"
+          onClick={() => onChange({})}
+          className="rounded border border-gray-300 px-2 py-0.5 hover:bg-gray-50"
+        >
+          Clear
+        </button>
+      </div>
+      <p className="mt-2 text-[11px] text-gray-500">
+        Click a day once for green (available). Click again for red (blocked/booked).
+      </p>
+    </div>
+  );
 }
 
 export default function VendorPortfolio() {
@@ -127,6 +285,17 @@ export default function VendorPortfolio() {
   const [manualEmail, setManualEmail] = useState('');
   const [manualName, setManualName] = useState('');
   const [vendorProfile, setVendorProfile] = useState<VendorApplication | null>(null);
+  const [profileForm, setProfileForm] = useState({
+    contactName: '',
+    city: '',
+    address: '',
+    websiteUrl: '',
+    portfolioUrl: '',
+    businessIntro: '',
+    profileImageUrl: '',
+  });
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileUploading, setProfileUploading] = useState(false);
   const [vendorCompliance, setVendorCompliance] = useState<VendorCompliance | null>(null);
   const [contractSignature, setContractSignature] = useState<VendorContractSignature | null>(null);
   const [openRequests, setOpenRequests] = useState<ServiceRequest[]>([]);
@@ -149,7 +318,15 @@ export default function VendorPortfolio() {
   const [inquirySubject, setInquirySubject] = useState('');
   const [inquiryMessage, setInquiryMessage] = useState('');
   const [vendorInquiries, setVendorInquiries] = useState<
-    Array<{ id: string; subject: string; message: string; adminReply?: string | null; status: string; createdAt: string }>
+    Array<{
+      id: string;
+      subject: string;
+      message: string;
+      adminReply?: string | null;
+      adminReplyAttachments?: string[];
+      status: string;
+      createdAt: string;
+    }>
   >([]);
   const [postForm, setPostForm] = useState({
     title: '',
@@ -157,8 +334,8 @@ export default function VendorPortfolio() {
     description: '',
     city: '',
     basePrice: '',
-    availabilityJson: '{}',
   });
+  const [postAvailability, setPostAvailability] = useState<AvailabilityMap>({});
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editPostForm, setEditPostForm] = useState({
     title: '',
@@ -166,10 +343,23 @@ export default function VendorPortfolio() {
     description: '',
     city: '',
     basePrice: '',
-    availabilityJson: '{}',
   });
+  const [editPostAvailability, setEditPostAvailability] = useState<AvailabilityMap>({});
   const navigate = useNavigate();
   const vendorInitial = String(vendorName || vendorEmail || 'V').trim().charAt(0).toUpperCase() || 'V';
+
+  useEffect(() => {
+    if (!vendorProfile) return;
+    setProfileForm({
+      contactName: vendorProfile.contactName || '',
+      city: vendorProfile.city || '',
+      address: vendorProfile.address || '',
+      websiteUrl: vendorProfile.websiteUrl || '',
+      portfolioUrl: vendorProfile.portfolioUrl || '',
+      businessIntro: vendorProfile.businessIntro || '',
+      profileImageUrl: vendorProfile.profileImageUrl || '',
+    });
+  }, [vendorProfile]);
 
   const loadVendorProfile = async (email: string) => {
     if (!email.trim()) return null;
@@ -351,9 +541,11 @@ export default function VendorPortfolio() {
   const vendorMatchProfile = useMemo(() => {
     const keywords = new Set<string>();
     const categories = new Set<string>();
+    const provided = Array.isArray(vendorProfile?.providedServices) ? vendorProfile.providedServices : [];
     const source = [
       vendorName,
       vendorProfile?.businessName || '',
+      ...provided,
       ...(posts || []).map((post) => `${post.serviceName || ''} ${post.title || ''} ${post.description || ''}`),
     ]
       .join(' ')
@@ -366,7 +558,15 @@ export default function VendorPortfolio() {
       if (hints.some((hint) => normalized.includes(hint))) categories.add(category);
     }
     return { keywords, categories };
-  }, [posts, vendorName, vendorProfile?.businessName]);
+  }, [posts, vendorName, vendorProfile?.businessName, vendorProfile?.providedServices]);
+
+  const vendorServices = useMemo(() => {
+    const all = [
+      ...(Array.isArray(vendorProfile?.providedServices) ? vendorProfile.providedServices : []),
+      ...posts.map((post) => post.serviceName || ''),
+    ];
+    return Array.from(new Set(all.map((item) => String(item || '').trim()).filter(Boolean)));
+  }, [posts, vendorProfile?.providedServices]);
 
   const requestHighlightsById = useMemo(() => {
     const byId: Record<string, { matched: string[]; others: string[] }> = {};
@@ -382,6 +582,11 @@ export default function VendorPortfolio() {
     }
     return byId;
   }, [openRequests, vendorMatchProfile.categories, vendorMatchProfile.keywords]);
+
+  const visibleOpenRequests = useMemo(() => {
+    if (vendorServices.length === 0) return openRequests;
+    return openRequests.filter((request) => (requestHighlightsById[request.id]?.matched || []).length > 0);
+  }, [openRequests, requestHighlightsById, vendorServices.length]);
 
   const declineRequest = async (requestId: string) => {
     if (!vendorCompliance?.canPublish) {
@@ -454,6 +659,44 @@ export default function VendorPortfolio() {
     }
   };
 
+  const saveProfileDetails = async () => {
+    if (!vendorEmail.trim()) return;
+    setProfileSaving(true);
+    setError('');
+    try {
+      const data = await updateVendorProfile({
+        vendorEmail: vendorEmail.trim(),
+        contactName: profileForm.contactName.trim(),
+        city: profileForm.city.trim(),
+        address: profileForm.address.trim(),
+        websiteUrl: profileForm.websiteUrl.trim(),
+        portfolioUrl: profileForm.portfolioUrl.trim(),
+        businessIntro: profileForm.businessIntro.trim(),
+        profileImageUrl: profileForm.profileImageUrl.trim(),
+      });
+      setVendorProfile(data.vendor);
+      setVendorName(data.vendor.businessName || vendorName);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save vendor profile.');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const uploadVendorProfileImage = async (file: File | null) => {
+    if (!file) return;
+    setProfileUploading(true);
+    setError('');
+    try {
+      const uploaded = await uploadFileToPublicStorage(file);
+      setProfileForm((prev) => ({ ...prev, profileImageUrl: uploaded.publicUrl }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Image upload failed.');
+    } finally {
+      setProfileUploading(false);
+    }
+  };
+
   const startStripeOnboarding = async () => {
     if (!vendorEmail.trim()) return;
     setStripeLoading(true);
@@ -486,17 +729,11 @@ export default function VendorPortfolio() {
         description: postForm.description.trim() || undefined,
         city: postForm.city.trim() || undefined,
         basePrice: postForm.basePrice ? Number(postForm.basePrice) : undefined,
-        availability: (() => {
-          try {
-            const parsed = JSON.parse(postForm.availabilityJson || '{}');
-            return typeof parsed === 'object' && parsed ? parsed : {};
-          } catch {
-            return {};
-          }
-        })(),
+        availability: postAvailability,
       });
-      setPostForm({ title: '', serviceName: '', description: '', city: '', basePrice: '', availabilityJson: '{}' });
-      await loadPosts(vendorEmail);
+      setPostForm({ title: '', serviceName: '', description: '', city: '', basePrice: '' });
+      setPostAvailability({});
+      await Promise.all([loadPosts(vendorEmail), loadVendorProfile(vendorEmail)]);
       setPostSuccess('Post erstellt. Er erscheint auf der Services-Seite, wenn dein Vendor-Konto approved ist und der Post aktiv bleibt.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Fehler beim Erstellen des Posts.');
@@ -524,8 +761,8 @@ export default function VendorPortfolio() {
       description: post.description || '',
       city: post.city || '',
       basePrice: post.basePrice ? String(post.basePrice) : '',
-      availabilityJson: JSON.stringify(post.availability || {}, null, 2),
     });
+    setEditPostAvailability(normalizeAvailability(post.availability || {}));
   };
 
   const savePostEdit = async (postId: string) => {
@@ -537,17 +774,6 @@ export default function VendorPortfolio() {
       setError('Titel und Service sind Pflichtfelder.');
       return;
     }
-    let availability: Record<string, boolean> | undefined = undefined;
-    try {
-      const parsed = JSON.parse(editPostForm.availabilityJson || '{}');
-      if (typeof parsed === 'object' && parsed) {
-        availability = parsed as Record<string, boolean>;
-      }
-    } catch {
-      setError('Verfuegbarkeit muss gueltiges JSON sein.');
-      return;
-    }
-
     try {
       await updateVendorPost(postId, {
         vendorEmail,
@@ -556,9 +782,10 @@ export default function VendorPortfolio() {
         description: editPostForm.description.trim(),
         city: editPostForm.city.trim(),
         basePrice: editPostForm.basePrice ? Number(editPostForm.basePrice) : undefined,
-        availability,
+        availability: editPostAvailability,
       });
       setEditingPostId(null);
+      setEditPostAvailability({});
       setError('');
       await loadPosts(vendorEmail);
     } catch (err) {
@@ -733,12 +960,38 @@ export default function VendorPortfolio() {
         {vendorProfile && (
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h2 className="text-xl font-semibold text-gray-900 mb-3">{tx.account}</h2>
+            <div className="mb-4 flex items-center gap-3">
+              {profileForm.profileImageUrl ? (
+                <img
+                  src={profileForm.profileImageUrl}
+                  alt="Vendor profile"
+                  className="h-14 w-14 rounded-full object-cover border border-gray-200"
+                />
+              ) : (
+                <div className="h-14 w-14 rounded-full bg-emerald-600 text-white flex items-center justify-center font-semibold text-lg">
+                  {vendorInitial}
+                </div>
+              )}
+              <div className="space-y-1">
+                <label className="text-xs text-gray-600 block">
+                  Profile image
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => uploadVendorProfileImage(e.target.files?.[0] || null)}
+                    className="mt-1 block text-xs"
+                  />
+                </label>
+                {profileUploading && <p className="text-xs text-gray-500">Uploading image...</p>}
+              </div>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-gray-700">
               <p><strong>Status:</strong> {vendorProfile.status}</p>
               <p><strong>Business:</strong> {vendorProfile.businessName}</p>
               <p><strong>Kontakt:</strong> {vendorProfile.contactName}</p>
               <p><strong>E-Mail:</strong> {vendorProfile.email}</p>
               {vendorProfile.city && <p><strong>Stadt:</strong> {vendorProfile.city}</p>}
+              {vendorProfile.address && <p><strong>Address:</strong> {vendorProfile.address}</p>}
               {vendorProfile.websiteUrl && <p><strong>Website:</strong> {vendorProfile.websiteUrl}</p>}
               {vendorProfile.portfolioUrl && <p><strong>Portfolio URL:</strong> {vendorProfile.portfolioUrl}</p>}
               <p><strong>Stripe Connect:</strong> {vendorProfile.stripeAccountId || 'Nicht verbunden'}</p>
@@ -750,6 +1003,73 @@ export default function VendorPortfolio() {
                   <p><strong>Stripe details_submitted:</strong> {stripeStatus.detailsSubmitted ? 'Ja' : 'Nein'}</p>
                 </>
               )}
+            </div>
+            <div className="mt-4 rounded-lg border border-gray-200 p-4">
+              <p className="text-sm font-semibold text-gray-900 mb-2">Services you provide</p>
+              <div className="flex flex-wrap gap-2">
+                {vendorServices.length > 0 ? vendorServices.map((service) => (
+                  <span key={service} className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs text-emerald-800">
+                    {service}
+                  </span>
+                )) : <span className="text-xs text-gray-500">No services posted yet.</span>}
+              </div>
+            </div>
+            <div className="mt-4 rounded-lg border border-gray-200 p-4 space-y-3">
+              <p className="text-sm font-semibold text-gray-900">Edit profile details</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input
+                  type="text"
+                  placeholder="Contact person"
+                  value={profileForm.contactName}
+                  onChange={(e) => setProfileForm((prev) => ({ ...prev, contactName: e.target.value }))}
+                  className="rounded-lg border border-gray-300 px-3 py-2.5"
+                />
+                <input
+                  type="text"
+                  placeholder="City"
+                  value={profileForm.city}
+                  onChange={(e) => setProfileForm((prev) => ({ ...prev, city: e.target.value }))}
+                  className="rounded-lg border border-gray-300 px-3 py-2.5"
+                />
+                <input
+                  type="text"
+                  placeholder="Address"
+                  value={profileForm.address}
+                  onChange={(e) => setProfileForm((prev) => ({ ...prev, address: e.target.value }))}
+                  className="rounded-lg border border-gray-300 px-3 py-2.5 md:col-span-2"
+                />
+                <input
+                  type="url"
+                  placeholder="Website URL"
+                  value={profileForm.websiteUrl}
+                  onChange={(e) => setProfileForm((prev) => ({ ...prev, websiteUrl: e.target.value }))}
+                  className="rounded-lg border border-gray-300 px-3 py-2.5"
+                />
+                <input
+                  type="url"
+                  placeholder="Portfolio URL"
+                  value={profileForm.portfolioUrl}
+                  onChange={(e) => setProfileForm((prev) => ({ ...prev, portfolioUrl: e.target.value }))}
+                  className="rounded-lg border border-gray-300 px-3 py-2.5"
+                />
+              </div>
+              <textarea
+                rows={3}
+                placeholder="Business intro"
+                value={profileForm.businessIntro}
+                onChange={(e) => setProfileForm((prev) => ({ ...prev, businessIntro: e.target.value }))}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={saveProfileDetails}
+                  disabled={profileSaving}
+                  className="rounded-lg bg-purple-600 text-white px-4 py-2.5 disabled:opacity-60"
+                >
+                  {profileSaving ? 'Saving profile...' : 'Save profile details'}
+                </button>
+              </div>
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
@@ -824,6 +1144,21 @@ export default function VendorPortfolio() {
                       {isDe ? 'Admin Antwort' : 'Admin reply'}
                     </p>
                     <p className="text-sm text-indigo-900 whitespace-pre-wrap mt-1">{inquiry.adminReply}</p>
+                    {(inquiry.adminReplyAttachments || []).length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {(inquiry.adminReplyAttachments || []).map((url, idx) => (
+                          <a
+                            key={`${inquiry.id}-attachment-${idx}`}
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded border border-indigo-300 bg-white px-2 py-1 text-xs text-indigo-700 hover:bg-indigo-100 break-all"
+                          >
+                            {isDe ? 'Datei oeffnen' : 'Open file'}
+                          </a>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -863,12 +1198,10 @@ export default function VendorPortfolio() {
               className="rounded-lg border border-gray-300 px-3 py-2.5"
             />
           </div>
-          <textarea
-            rows={2}
-            placeholder='Verfuegbarkeit als JSON, z. B. {"2026-03-10": true}'
-            value={postForm.availabilityJson}
-            onChange={(e) => setPostForm((p) => ({ ...p, availabilityJson: e.target.value }))}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2.5 mb-3"
+          <AvailabilityCalendar
+            value={postAvailability}
+            onChange={setPostAvailability}
+            title="Availability calendar"
           />
           <textarea
             rows={2}
@@ -928,12 +1261,10 @@ export default function VendorPortfolio() {
                       className="w-full rounded-lg border border-gray-300 px-3 py-2.5"
                       placeholder="Beschreibung"
                     />
-                    <textarea
-                      rows={3}
-                      value={editPostForm.availabilityJson}
-                      onChange={(e) => setEditPostForm((p) => ({ ...p, availabilityJson: e.target.value }))}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2.5 font-mono text-xs"
-                      placeholder='{"2026-03-10": true}'
+                    <AvailabilityCalendar
+                      value={editPostAvailability}
+                      onChange={setEditPostAvailability}
+                      title="Availability calendar"
                     />
                     <div className="flex items-center gap-2">
                       <button
@@ -945,7 +1276,10 @@ export default function VendorPortfolio() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => setEditingPostId(null)}
+                        onClick={() => {
+                          setEditingPostId(null);
+                          setEditPostAvailability({});
+                        }}
                         className="rounded-lg bg-gray-200 px-3 py-1.5 text-sm"
                       >
                         Abbrechen
@@ -975,6 +1309,9 @@ export default function VendorPortfolio() {
                     </div>
                     <p className="text-sm text-gray-700">{post.serviceName} | {post.city || '-'} | EUR {post.basePrice || 0}</p>
                     {post.description && <p className="text-sm text-gray-600 mt-1">{post.description}</p>}
+                    <p className="text-xs text-gray-500 mt-1">
+                      Availability days: {Object.keys(normalizeAvailability(post.availability || {})).length}
+                    </p>
                   </>
                 )}
               </div>
@@ -990,13 +1327,13 @@ export default function VendorPortfolio() {
               {tx.loadingOpenRequests}
             </div>
           )}
-          {!loading && openRequests.length === 0 && (
+          {!loading && visibleOpenRequests.length === 0 && (
             <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-600">
-              {tx.noOpenRequests}
+              {vendorServices.length > 0 ? 'No requests matched to your posted services yet.' : tx.noOpenRequests}
             </div>
           )}
 
-          {openRequests.map((request) => (
+          {visibleOpenRequests.map((request) => (
             <div key={request.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>

@@ -47,6 +47,10 @@ export default function VenueDetail() {
   const FRONTEND_BASE_URL = import.meta.env.VITE_FRONTEND_BASE_URL || window.location.origin;
   const checkoutSectionId = 'venue-checkout-section';
   const cartSectionId = 'venue-cart-section';
+  const dateSectionRef = useRef<HTMLDivElement | null>(null);
+  const dateTriggerButtonRef = useRef<HTMLButtonElement | null>(null);
+  const completeBookingFormRef = useRef<HTMLFormElement | null>(null);
+  const [showDateRequiredRibbon, setShowDateRequiredRibbon] = useState(false);
 
   useEffect(() => {
     if (!venueStateStorageKey) return;
@@ -125,8 +129,10 @@ export default function VenueDetail() {
         });
         lastSavedProfileSnapshotRef.current = snapshot;
         setProfileSyncStatus('saved');
+        window.setTimeout(() => setProfileSyncStatus('idle'), 1200);
       } catch {
-        setProfileSyncStatus('error');
+        // Autosave should be non-blocking; keep UI clean and retry on next change.
+        setProfileSyncStatus('idle');
       }
     }, 700);
     return () => window.clearTimeout(timer);
@@ -198,10 +204,7 @@ export default function VenueDetail() {
       alert('Please use a customer account to continue.');
       return;
     }
-    if (!selectedDate) {
-      alert(t('venue.alert.selectDate'));
-      return;
-    }
+    if (!ensureDateSelected()) return;
     if (venue.bookedDates.includes(selectedDate)) {
       alert(t('venue.alert.notAvailable'));
       return;
@@ -225,6 +228,7 @@ export default function VenueDetail() {
       alert('Please use a customer account for checkout.');
       return;
     }
+    if (!ensureDateSelected()) return;
     if (!cart.venue) {
       alert('Select a venue to continue.');
       return;
@@ -266,6 +270,7 @@ export default function VenueDetail() {
 
   const submitCompleteBookingForm = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!ensureDateSelected()) return;
     if (!bookingForm.name.trim() || !bookingForm.email.trim()) {
       alert('Please enter name and email.');
       return;
@@ -331,6 +336,26 @@ export default function VenueDetail() {
   const guideToCart = () => {
     document.getElementById(cartSectionId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
+  const ensureDateSelected = () => {
+    if (selectedDate) {
+      setShowDateRequiredRibbon(false);
+      return true;
+    }
+    setShowDateRequiredRibbon(true);
+    dateSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setIsCalendarOpen(true);
+    window.setTimeout(() => {
+      dateTriggerButtonRef.current?.focus();
+    }, 250);
+    return false;
+  };
+  const openCompleteBooking = () => {
+    if (!ensureDateSelected()) return;
+    setShowCheckoutForm(true);
+    window.setTimeout(() => {
+      completeBookingFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 80);
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 py-6 sm:py-12">
@@ -393,11 +418,24 @@ export default function VenueDetail() {
         <div id={checkoutSectionId} className="bg-white rounded-xl shadow-md p-4 sm:p-8 sticky bottom-2 sm:bottom-4">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="flex-1 grid gap-6 lg:grid-cols-2 lg:items-end">
-              <div>
+              <div ref={dateSectionRef}>
                 <div className="flex items-center gap-2 mb-2"><CalendarIcon className="size-5 text-purple-600" /><h3 className="font-semibold text-gray-900">{t('venue.eventDate')}</h3></div>
+                {showDateRequiredRibbon && !selectedDate && (
+                  <div className="mb-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+                    Choose date first. Please select a date in the calendar.
+                  </div>
+                )}
                 <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
                   <PopoverTrigger asChild>
-                    <button type="button" className="w-full max-w-sm flex items-center justify-between gap-3 text-left px-3 sm:px-4 py-2.5 sm:py-3 border border-gray-300 rounded-lg hover:border-purple-300 focus:ring-2 focus:ring-purple-600 focus:border-transparent">
+                    <button
+                      ref={dateTriggerButtonRef}
+                      type="button"
+                      className={`w-full max-w-sm flex items-center justify-between gap-3 text-left px-3 sm:px-4 py-2.5 sm:py-3 border rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-transparent ${
+                        showDateRequiredRibbon && !selectedDate
+                          ? 'border-red-400 ring-1 ring-red-300'
+                          : 'border-gray-300 hover:border-purple-300'
+                      }`}
+                    >
                       <span>{selectedDate ? displayDate : t('venue.selectDate')}</span>
                       <CalendarIcon className="size-5 text-purple-600" />
                     </button>
@@ -409,6 +447,7 @@ export default function VenueDetail() {
                       onSelect={(date) => {
                         if (!date) return;
                         setSelectedDate(formatDate(date));
+                        setShowDateRequiredRibbon(false);
                         setIsCalendarOpen(false);
                       }}
                       fromDate={new Date(`${today}T00:00:00`)}
@@ -460,7 +499,7 @@ export default function VenueDetail() {
             </div>
 
             <div className="w-full lg:w-auto flex flex-col gap-2">
-              <button onClick={() => setShowCheckoutForm((prev) => !prev)} disabled={!cart.venue || payNowLoading || isBookingBlockedForRole} className="w-full lg:w-auto flex items-center justify-center gap-2 bg-purple-600 text-white px-6 sm:px-8 py-3 sm:py-4 rounded-lg font-semibold hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed">
+              <button onClick={openCompleteBooking} disabled={!cart.venue || payNowLoading || isBookingBlockedForRole} className="w-full lg:w-auto flex items-center justify-center gap-2 bg-purple-600 text-white px-6 sm:px-8 py-3 sm:py-4 rounded-lg font-semibold hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed">
                 {payNowLoading ? 'Starting checkout...' : isBookingBlockedForRole ? 'Customers only' : 'Complete booking'}
                 <ArrowRight className="size-5" />
               </button>
@@ -474,7 +513,7 @@ export default function VenueDetail() {
           </div>
 
           {showCheckoutForm && (
-            <form onSubmit={submitCompleteBookingForm} className="mt-4 rounded-lg border border-gray-200 p-4 space-y-3">
+            <form ref={completeBookingFormRef} onSubmit={submitCompleteBookingForm} className="mt-4 rounded-lg border border-gray-200 p-4 space-y-3">
               <p className="text-sm font-semibold text-gray-900">Complete booking</p>
               {profileSyncStatus !== 'idle' && (
                 <p className={`text-xs ${profileSyncStatus === 'error' ? 'text-red-600' : 'text-gray-500'}`}>

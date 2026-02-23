@@ -120,7 +120,16 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [inquiries, setInquiries] = useState<
-    Array<{ id: string; vendorEmail: string; subject: string; message: string; adminReply?: string | null; status: string; createdAt: string }>
+    Array<{
+      id: string;
+      vendorEmail: string;
+      subject: string;
+      message: string;
+      adminReply?: string | null;
+      adminReplyAttachments?: string[];
+      status: string;
+      createdAt: string;
+    }>
   >([]);
   const [openApplicationIds, setOpenApplicationIds] = useState<Record<string, boolean>>({});
   const [openRequestIds, setOpenRequestIds] = useState<Record<string, boolean>>({});
@@ -1271,6 +1280,24 @@ export default function AdminDashboard() {
                 {inq.adminReply && (
                   <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-800 whitespace-pre-wrap">
                     {isDe ? 'Letzte Admin-Antwort:' : 'Latest admin reply:'} {inq.adminReply}
+                  </div>
+                )}
+                {(inq.adminReplyAttachments || []).length > 0 && (
+                  <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2">
+                    <p className="text-xs font-semibold text-indigo-700 mb-1">{isDe ? 'Angehaengte Dateien' : 'Attached files'}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {(inq.adminReplyAttachments || []).map((url, idx) => (
+                        <a
+                          key={`${inq.id}-att-${idx}`}
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded border border-indigo-300 bg-white px-2 py-1 text-xs text-indigo-700 hover:bg-indigo-100 break-all"
+                        >
+                          {isDe ? 'Datei oeffnen' : 'Open file'}
+                        </a>
+                      ))}
+                    </div>
                   </div>
                 )}
                 <div className="mt-3 flex flex-col sm:flex-row gap-2">

@@ -1807,8 +1807,68 @@ function normalizeDateOnly(input) {
 }
 
 function pickPrimaryCategory(categories) {
+  if (categories && typeof categories === 'object' && !Array.isArray(categories)) {
+    const categoryList = Array.isArray(categories.categories) ? categories.categories : [];
+    if (categoryList.length > 0) return String(categoryList[0]);
+  }
   if (Array.isArray(categories) && categories.length > 0) return String(categories[0]);
   return 'General';
+}
+
+function parseVendorCategoriesMeta(rawCategories) {
+  const defaultMeta = {
+    categories: [],
+    providedServices: [],
+    address: null,
+    profileImageUrl: null,
+  };
+  if (Array.isArray(rawCategories)) {
+    return {
+      ...defaultMeta,
+      categories: rawCategories.map((item) => String(item || '').trim()).filter(Boolean),
+    };
+  }
+  if (!rawCategories || typeof rawCategories !== 'object') return defaultMeta;
+  const categories = Array.isArray(rawCategories.categories) ? rawCategories.categories : [];
+  const providedServices = Array.isArray(rawCategories.providedServices) ? rawCategories.providedServices : [];
+  const address = normalizeOptionalString(rawCategories.address, 300);
+  const profileImageUrl = normalizeOptionalString(rawCategories.profileImageUrl, 500);
+  return {
+    categories: categories.map((item) => String(item || '').trim()).filter(Boolean),
+    providedServices: providedServices.map((item) => String(item || '').trim()).filter(Boolean),
+    address: address || null,
+    profileImageUrl: profileImageUrl || null,
+  };
+}
+
+function mergeVendorCategoriesMeta(existingCategories, patch = {}) {
+  const current = parseVendorCategoriesMeta(existingCategories);
+  const merged = {
+    categories: Array.isArray(patch.categories)
+      ? patch.categories.map((item) => String(item || '').trim()).filter(Boolean)
+      : current.categories,
+    providedServices: Array.isArray(patch.providedServices)
+      ? patch.providedServices.map((item) => String(item || '').trim()).filter(Boolean)
+      : current.providedServices,
+    address: Object.prototype.hasOwnProperty.call(patch, 'address')
+      ? (normalizeOptionalString(patch.address, 300) || null)
+      : current.address,
+    profileImageUrl: Object.prototype.hasOwnProperty.call(patch, 'profileImageUrl')
+      ? (normalizeOptionalString(patch.profileImageUrl, 500) || null)
+      : current.profileImageUrl,
+  };
+  return merged;
+}
+
+function mapVendorApplicationForApi(vendor, extra = {}) {
+  const meta = parseVendorCategoriesMeta(vendor?.categories);
+  return {
+    ...vendor,
+    address: meta.address || null,
+    profileImageUrl: meta.profileImageUrl || null,
+    providedServices: meta.providedServices || [],
+    ...extra,
+  };
 }
 
 function mapVendorApplicationStatusToProfileStatus(status) {
@@ -1988,6 +2048,39 @@ async function verifyGoogleIdToken(idToken) {
 
 const ADMIN_REPLY_MARKER = '\n\n---ADMIN_REPLY---\n';
 
+function parseAdminReplyPayload(rawAdminReply) {
+  const text = String(rawAdminReply || '').trim();
+  if (!text) return { replyText: null, attachmentUrls: [] };
+  const lines = text.split(/\r?\n/);
+  const cleanLines = [];
+  const attachmentUrls = [];
+  let attachmentSection = false;
+
+  for (const rawLine of lines) {
+    const line = String(rawLine || '');
+    const trimmed = line.trim();
+    if (/^attachments\s*\/\s*links\s*:/i.test(trimmed)) {
+      attachmentSection = true;
+      continue;
+    }
+    if (attachmentSection) {
+      if (!trimmed) continue;
+      const bulletMatch = /^\-\s*(https?:\/\/\S+)$/i.exec(trimmed);
+      if (bulletMatch) {
+        attachmentUrls.push(bulletMatch[1]);
+        continue;
+      }
+      attachmentSection = false;
+    }
+    cleanLines.push(line);
+  }
+
+  return {
+    replyText: cleanLines.join('\n').trim() || null,
+    attachmentUrls: Array.from(new Set(attachmentUrls)),
+  };
+}
+
 function splitInquiryMessage(rawMessage) {
   const message = String(rawMessage || '');
   const markerIndex = message.indexOf(ADMIN_REPLY_MARKER);
@@ -1995,11 +2088,16 @@ function splitInquiryMessage(rawMessage) {
     return {
       vendorMessage: message,
       adminReply: null,
+      adminReplyAttachments: [],
     };
   }
   const vendorMessage = message.slice(0, markerIndex).trim();
-  const adminReply = message.slice(markerIndex + ADMIN_REPLY_MARKER.length).trim() || null;
-  return { vendorMessage, adminReply };
+  const parsedAdmin = parseAdminReplyPayload(message.slice(markerIndex + ADMIN_REPLY_MARKER.length));
+  return {
+    vendorMessage,
+    adminReply: parsedAdmin.replyText,
+    adminReplyAttachments: parsedAdmin.attachmentUrls,
+  };
 }
 
 function serializeVendorInquiryForApi(row) {
@@ -2010,6 +2108,7 @@ function serializeVendorInquiryForApi(row) {
     subject: row.subject,
     message: parts.vendorMessage,
     adminReply: parts.adminReply,
+    adminReplyAttachments: parts.adminReplyAttachments || [],
     status: row.status,
     createdAt: row.createdAt,
   };
@@ -5105,11 +5204,62 @@ createServer(async (req, res) => {
       const compliance = await getVendorCompliance(vendor.email);
       const payoutReadiness = await getVendorPayoutReadiness(vendor);
       return sendJson(res, 200, {
-        vendor: {
-          ...vendor,
+        vendor: mapVendorApplicationForApi(vendor, {
           compliance: buildVendorActivationState(vendor, compliance),
           payoutReadiness,
+        }),
+      });
+    }
+
+    if (req.method === 'PATCH' && path === '/api/vendor/profile') {
+      const auth = requireJwt(req, 'vendor');
+      const body = await readBody(req);
+      const vendorEmail = String(body.vendorEmail || auth.email || '').trim();
+      if (!vendorEmail) return sendJson(res, 400, { error: 'vendorEmail is required' });
+      if (String(auth.email || '').toLowerCase() !== vendorEmail.toLowerCase()) {
+        return sendJson(res, 403, { error: 'You can only update your own vendor profile' });
+      }
+
+      const vendor = await prisma.vendorApplication.findFirst({
+        where: { email: { equals: vendorEmail, mode: 'insensitive' } },
+      });
+      if (!vendor) return sendJson(res, 404, { error: 'Vendor profile not found' });
+
+      const nextContactName = normalizeOptionalString(body.contactName, 120);
+      const nextCity = normalizeOptionalString(body.city, 120);
+      const nextWebsiteUrl = normalizeOptionalString(body.websiteUrl, 500);
+      const nextPortfolioUrl = normalizeOptionalString(body.portfolioUrl, 500);
+      const nextBusinessIntro = normalizeOptionalString(body.businessIntro, 2000);
+      const nextAddress = normalizeOptionalString(body.address, 300);
+      const nextProfileImageUrl = normalizeOptionalString(body.profileImageUrl, 500);
+      const nextProvidedServices = Array.isArray(body.providedServices)
+        ? body.providedServices.map((item) => String(item || '').trim()).filter(Boolean)
+        : undefined;
+
+      const mergedCategories = mergeVendorCategoriesMeta(vendor.categories, {
+        address: nextAddress,
+        profileImageUrl: nextProfileImageUrl,
+        providedServices: nextProvidedServices,
+      });
+
+      const updated = await prisma.vendorApplication.update({
+        where: { id: vendor.id },
+        data: {
+          contactName: nextContactName ?? vendor.contactName,
+          city: nextCity ?? vendor.city,
+          websiteUrl: nextWebsiteUrl ?? vendor.websiteUrl,
+          portfolioUrl: nextPortfolioUrl ?? vendor.portfolioUrl,
+          businessIntro: nextBusinessIntro ?? vendor.businessIntro,
+          categories: mergedCategories,
         },
+      });
+      const compliance = await getVendorCompliance(updated.email);
+      const payoutReadiness = await getVendorPayoutReadiness(updated);
+      return sendJson(res, 200, {
+        vendor: mapVendorApplicationForApi(updated, {
+          compliance: buildVendorActivationState(updated, compliance),
+          payoutReadiness,
+        }),
       });
     }
 
@@ -5196,6 +5346,14 @@ createServer(async (req, res) => {
           basePrice: body.basePrice ? Number(body.basePrice) : null,
           availability: body.availability || {},
           isActive: body.isActive !== false,
+        },
+      });
+      const categoryMeta = parseVendorCategoriesMeta(vendor.categories);
+      const nextServices = Array.from(new Set([...(categoryMeta.providedServices || []), String(serviceName)]));
+      await prisma.vendorApplication.update({
+        where: { id: vendor.id },
+        data: {
+          categories: mergeVendorCategoriesMeta(vendor.categories, { providedServices: nextServices }),
         },
       });
       return sendJson(res, 201, { post });
