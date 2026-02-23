@@ -1,6 +1,9 @@
 export type VendorCompliance = {
   contractAccepted: boolean;
+  contractAcceptedAt?: string | null;
+  contractVersion?: string | null;
   trainingCompleted: boolean;
+  trainingCompletedAt?: string | null;
   adminApproved: boolean;
   canPublish: boolean;
 };
@@ -12,6 +15,32 @@ export type VendorApplication = {
   email: string;
   status: string;
   city?: string | null;
+  compliance?: VendorCompliance;
+};
+
+export type VendorPost = {
+  id: string;
+  title: string;
+  serviceName: string;
+  city?: string | null;
+  basePrice?: number | null;
+  availability?: Record<string, boolean>;
+  isActive: boolean;
+};
+
+export type PublicVendorPost = {
+  id: string;
+  title: string;
+  serviceName: string;
+  description?: string | null;
+  city?: string | null;
+  basePrice?: number | null;
+  availability?: Record<string, boolean>;
+  createdAt: string;
+  vendorName: string;
+};
+
+export type AdminVendorApplication = VendorApplication & {
   compliance?: VendorCompliance;
 };
 

@@ -1,5 +1,11 @@
 import Constants from 'expo-constants';
-import type { ServiceRequest, VendorApplication } from './types';
+import type {
+  AdminVendorApplication,
+  PublicVendorPost,
+  ServiceRequest,
+  VendorApplication,
+  VendorPost,
+} from './types';
 
 const API_BASE =
   process.env.EXPO_PUBLIC_API_BASE_URL
@@ -59,16 +65,31 @@ export async function getVendorCompliance(email: string, token: string) {
 
 export async function getVendorPosts(email: string, token: string) {
   return request<{
-    posts: Array<{
-      id: string;
-      title: string;
-      serviceName: string;
-      city?: string | null;
-      basePrice?: number | null;
-      availability?: Record<string, boolean>;
-      isActive: boolean;
-    }>;
+    posts: VendorPost[];
   }>(`/api/vendor/posts?vendorEmail=${encodeURIComponent(email)}`, { method: 'GET' }, token);
+}
+
+export async function createVendorPost(
+  token: string,
+  payload: {
+    vendorEmail: string;
+    title: string;
+    serviceName: string;
+    city?: string;
+    basePrice?: number;
+    description?: string;
+    availability?: Record<string, boolean>;
+  },
+) {
+  return request<{ post: VendorPost }>(
+    '/api/vendor/posts',
+    { method: 'POST', body: JSON.stringify(payload) },
+    token,
+  );
+}
+
+export async function getPublicVendorPosts() {
+  return request<{ posts: PublicVendorPost[] }>('/api/vendor/posts/public');
 }
 
 export async function getAdminOverview(token: string) {
@@ -82,4 +103,24 @@ export async function getAdminOverview(token: string) {
       totalOffers: number;
     };
   }>('/api/admin/overview', { method: 'GET' }, token);
+}
+
+export async function getAdminVendorApplications(token: string) {
+  return request<{ applications: AdminVendorApplication[] }>(
+    '/api/admin/vendor-applications',
+    { method: 'GET' },
+    token,
+  );
+}
+
+export async function confirmVendorCompliance(
+  token: string,
+  applicationId: string,
+  field: 'contract' | 'training',
+) {
+  return request<{ compliance: VendorApplication['compliance']; application?: VendorApplication }>(
+    `/api/admin/vendor-applications/${encodeURIComponent(applicationId)}/compliance/${field}/confirm`,
+    { method: 'POST' },
+    token,
+  );
 }
