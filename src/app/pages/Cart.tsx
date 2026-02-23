@@ -227,6 +227,12 @@ export default function Cart() {
   }
 
   function getServiceDateAvailability(service: (typeof cart.services)[number]) {
+    if (service.availabilityMap && service.serviceDate) {
+      const map = service.availabilityMap;
+      if (Object.prototype.hasOwnProperty.call(map, service.serviceDate)) {
+        return { known: true, available: Boolean(map[service.serviceDate]) };
+      }
+    }
     const sourceService = mockServices.find((entry) => entry.id === service.serviceId);
     const provider = sourceService?.providers.find((entry) => entry.id === service.providerId);
     if (!provider || !service.serviceDate) return { known: false, available: true };

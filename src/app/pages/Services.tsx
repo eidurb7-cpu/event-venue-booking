@@ -67,6 +67,8 @@ export default function Services() {
   const [offerError, setOfferError] = useState('');
   const [offerSaving, setOfferSaving] = useState(false);
   const [publicPosts, setPublicPosts] = useState<PublicVendorPost[]>([]);
+  const [postDateById, setPostDateById] = useState<Record<string, string>>({});
+  const [postDateErrorById, setPostDateErrorById] = useState<Record<string, string>>({});
   const cartSectionRef = useRef<HTMLElement | null>(null);
   const currentUser = getCurrentUser();
   const isVendorViewOnly = currentUser?.role === 'vendor';
@@ -244,7 +246,46 @@ export default function Services() {
     setTimeout(scrollToCart, 50);
   };
 
+  const getPostAvailabilityStatus = (post: PublicVendorPost, date: string) => {
+    if (!date) return 'none';
+    const map = post.availability || {};
+    if (!Object.prototype.hasOwnProperty.call(map, date)) return 'unknown';
+    return map[date] ? 'available' : 'blocked';
+  };
+
+  const addVendorPostToCart = (post: PublicVendorPost) => {
+    const selectedDate = String(postDateById[post.id] || '').trim();
+    if (!selectedDate) {
+      setPostDateErrorById((prev) => ({ ...prev, [post.id]: 'Choose date first' }));
+      return;
+    }
+    const state = getPostAvailabilityStatus(post, selectedDate);
+    if (state === 'blocked') {
+      setPostDateErrorById((prev) => ({ ...prev, [post.id]: 'This post is blocked on selected date' }));
+      return;
+    }
+    setPostDateErrorById((prev) => ({ ...prev, [post.id]: '' }));
+    const cartId = `vendorpost:${post.id}`;
+    toggleService({
+      id: cartId,
+      title: `${post.serviceName} - ${post.title} (${post.vendorName})`,
+      price: Number(post.basePrice || 0),
+      category: post.serviceName,
+      serviceId: `vendorpost:${post.id}`,
+      providerId: `post:${post.id}`,
+      serviceDate: selectedDate,
+      availabilityMap: post.availability || {},
+    });
+  };
+
   const getServiceAvailability = (item: (typeof cart.services)[number]) => {
+    if (item.availabilityMap && item.serviceDate) {
+      const map = item.availabilityMap;
+      if (Object.prototype.hasOwnProperty.call(map, item.serviceDate)) {
+        return { known: true, available: Boolean(map[item.serviceDate]) };
+      }
+      return { known: false, available: true };
+    }
     const service = services.find((entry) => entry.id === item.serviceId);
     const provider = service?.providers.find((entry) => entry.id === item.providerId);
     if (!provider || !item.serviceDate) return { known: false, available: true };
@@ -528,6 +569,36 @@ export default function Services() {
                   <p className="mt-3 text-sm font-semibold text-gray-900">
                     {post.basePrice ? `EUR ${post.basePrice.toLocaleString()}` : 'Preis auf Anfrage'}
                   </p>
+                  <div className="mt-3 grid grid-cols-1 gap-2">
+                    <input
+                      type="date"
+                      value={postDateById[post.id] || ''}
+                      onChange={(e) => {
+                        const nextDate = e.target.value;
+                        setPostDateById((prev) => ({ ...prev, [post.id]: nextDate }));
+                        setPostDateErrorById((prev) => ({ ...prev, [post.id]: '' }));
+                      }}
+                      className="rounded border border-gray-300 px-2 py-1.5 text-xs"
+                    />
+                    {(() => {
+                      const state = getPostAvailabilityStatus(post, postDateById[post.id] || '');
+                      if (state === 'none') return <p className="text-xs text-amber-700">Choose date to view post availability</p>;
+                      if (state === 'available') return <p className="text-xs text-green-700">Post available on selected date</p>;
+                      if (state === 'blocked') return <p className="text-xs text-red-700">Post blocked on selected date</p>;
+                      return <p className="text-xs text-gray-600">No explicit date rule in post calendar</p>;
+                    })()}
+                    {postDateErrorById[post.id] && (
+                      <p className="text-xs text-red-700">{postDateErrorById[post.id]}</p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => addVendorPostToCart(post)}
+                    disabled={isBookingBlockedForRole}
+                    className="mt-2 w-full rounded-lg border border-purple-300 text-purple-700 py-2 text-sm font-medium hover:bg-purple-50 transition-colors disabled:bg-gray-100 disabled:text-gray-400"
+                  >
+                    {isBookingBlockedForRole ? 'Customers only' : 'Save to cart'}
+                  </button>
                 </article>
               ))}
             </div>

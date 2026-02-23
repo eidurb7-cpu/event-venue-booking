@@ -16,6 +16,7 @@ export type Service = {
   serviceId?: string;
   providerId?: string;
   serviceDate?: string;
+  availabilityMap?: Record<string, boolean>;
 };
 
 export type Cart = {
