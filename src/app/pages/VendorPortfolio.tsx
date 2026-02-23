@@ -24,7 +24,7 @@ import {
   updateVendorOffer,
   updateVendorPost,
 } from '../utils/api';
-import { getCurrentUser } from '../utils/auth';
+import { clearCurrentUser, getCurrentUser } from '../utils/auth';
 import { useLanguage } from '../context/LanguageContext';
 
 const SERVICE_CATEGORY_HINTS: Record<string, string[]> = {
@@ -63,6 +63,11 @@ function getVendorVisibleNote(rawNote: string) {
   const lower = text.toLowerCase();
   if (blockedPatterns.some((pattern) => lower.includes(pattern))) return '';
   return text.length > 280 ? `${text.slice(0, 280)}...` : text;
+}
+
+function isUnauthorizedError(err: unknown) {
+  const msg = err instanceof Error ? err.message : String(err || '');
+  return /unauthorized|401/i.test(msg);
 }
 
 export default function VendorPortfolio() {
@@ -212,6 +217,17 @@ export default function VendorPortfolio() {
       setVendorCompliance(data.compliance);
       setContractSignature(data.signature || null);
     } catch (err) {
+      if (isUnauthorizedError(err)) {
+        // Keep checklist usable after token expiration by falling back to profile payload.
+        try {
+          const profile = await getVendorProfile(email.trim());
+          setVendorCompliance(profile.vendor.compliance || null);
+        } catch {
+          // ignore fallback errors
+        }
+        setError('Session expired. Please log in again to refresh protected actions.');
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Fehler beim Laden des Compliance-Status.');
     }
   };
@@ -666,6 +682,11 @@ export default function VendorPortfolio() {
                     await Promise.all([loadOpenRequests(), loadPosts(vendorEmail.trim())]);
                   }
                 } catch (err) {
+                  if (isUnauthorizedError(err)) {
+                    clearCurrentUser();
+                    navigate('/login');
+                    return;
+                  }
                   setError(err instanceof Error ? err.message : 'Failed to accept contract.');
                 } finally {
                   setComplianceLoading(false);
