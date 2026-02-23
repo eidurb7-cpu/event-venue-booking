@@ -8,6 +8,7 @@ type CartContextValue = {
   setVenue: (venue: Venue) => void;
   clearVenue: () => void;
   toggleService: (service: Service) => void;
+  updateServiceDate: (serviceId: string, serviceDate: string) => void;
   removeService: (serviceId: string) => void;
   clearCart: () => void;
   total: number;
@@ -33,7 +34,12 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       if (!saved) return;
       const parsed = JSON.parse(saved) as Cart;
       const validServices = Array.isArray(parsed?.services)
-        ? parsed.services.filter((s) => s && typeof s.id === 'string' && Number.isFinite(s.price))
+        ? parsed.services
+            .filter((s) => s && typeof s.id === 'string' && Number.isFinite(s.price))
+            .map((s) => ({
+              ...s,
+              serviceDate: typeof s.serviceDate === 'string' ? s.serviceDate : '',
+            }))
         : [];
       const nextCart: Cart = {
         venue:
@@ -92,6 +98,17 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     }));
   };
 
+  const updateServiceDate = (serviceId: string, serviceDate: string) => {
+    setCart((prev) => ({
+      ...prev,
+      services: prev.services.map((service) => (
+        service.id === serviceId
+          ? { ...service, serviceDate }
+          : service
+      )),
+    }));
+  };
+
   const clearCart = () => setCart(defaultCart);
 
   return (
@@ -101,6 +118,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         setVenue,
         clearVenue,
         toggleService,
+        updateServiceDate,
         removeService,
         clearCart,
         total,
@@ -117,4 +135,3 @@ export function useCart() {
   if (!ctx) throw new Error('useCart must be used inside <CartProvider />');
   return ctx;
 }
-

@@ -6,6 +6,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { getCurrentUser } from '../utils/auth';
 import { ServiceRequest, cancelCustomerRequest, createRequest, getCustomerProfile, getCustomerRequests, updateCustomerProfile } from '../utils/api';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { services as mockServices } from '../data/mockData';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 const FRONTEND_BASE_URL = import.meta.env.VITE_FRONTEND_BASE_URL || window.location.origin;
@@ -29,7 +30,7 @@ export default function Cart() {
   const { language } = useLanguage();
   const isDe = language === 'de';
   const navigate = useNavigate();
-  const { cart, total, removeService, clearCart, clearVenue } = useCart();
+  const { cart, total, updateServiceDate, removeService, clearCart, clearVenue } = useCart();
   const [requestSending, setRequestSending] = useState(false);
   const [savingLater, setSavingLater] = useState(false);
   const [showCheckoutForm, setShowCheckoutForm] = useState(false);
@@ -225,6 +226,16 @@ export default function Cart() {
     return customerRequests.find((item) => item.id === service.requestId) || null;
   }
 
+  function getServiceDateAvailability(service: (typeof cart.services)[number]) {
+    const sourceService = mockServices.find((entry) => entry.id === service.serviceId);
+    const provider = sourceService?.providers.find((entry) => entry.id === service.providerId);
+    if (!provider || !service.serviceDate) return { known: false, available: true };
+    return {
+      known: true,
+      available: !provider.bookedDates.includes(service.serviceDate),
+    };
+  }
+
   async function checkout() {
     setUiError('');
     setUiInfo('');
@@ -382,6 +393,19 @@ export default function Cart() {
       setUiError('Please add at least one service before sending a request.');
       return;
     }
+    const missingServiceDates = cart.services.filter((service) => !String(service.serviceDate || '').trim());
+    if (missingServiceDates.length > 0) {
+      setUiError('Choose a date for every service before sending request.');
+      return;
+    }
+    const unavailableServices = cart.services.filter((service) => {
+      const availability = getServiceDateAvailability(service);
+      return availability.known && !availability.available;
+    });
+    if (unavailableServices.length > 0) {
+      setUiError('One or more services are not available on selected dates. Adjust dates first.');
+      return;
+    }
     if (!bookingForm.name.trim() || !bookingForm.email.trim()) {
       setUiError('Please enter client name and email first.');
       return;
@@ -396,7 +420,7 @@ export default function Cart() {
     );
     const requestServices = selectedServices.length > 0 ? selectedServices : ['other'];
 
-    const lines = cart.services.map((service) => `- ${service.title} (EUR ${service.price})`);
+    const lines = cart.services.map((service) => `- ${service.title} (EUR ${service.price}) | Date: ${service.serviceDate || '-'}`);
     const notes = [
       `Client: ${bookingForm.name.trim()}`,
       `Client email: ${bookingForm.email.trim()}`,
@@ -418,6 +442,7 @@ export default function Cart() {
         address: bookingForm.address.trim() || undefined,
         selectedServices: requestServices,
         budget: Math.max(1, servicesTotal),
+        eventDate: cart.services[0]?.serviceDate || undefined,
         notes,
       }) as { request?: { id?: string } };
       const requestId = response?.request?.id ? String(response.request.id) : undefined;
@@ -550,10 +575,28 @@ export default function Cart() {
                   key={service.id}
                   className="rounded-lg border border-gray-200 p-3 flex items-center justify-between gap-3"
                 >
-                  <div>
+                  <div className="flex-1">
                     <p className="font-medium text-gray-900">{service.title}</p>
                     <p className="text-sm text-gray-600">{service.category || 'service'}</p>
                     <p className="text-sm font-medium text-purple-700">EUR {service.price.toLocaleString()}</p>
+                    <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-md">
+                      <input
+                        type="date"
+                        value={service.serviceDate || ''}
+                        onChange={(e) => updateServiceDate(service.id, e.target.value)}
+                        className="rounded border border-gray-300 px-2 py-1.5 text-xs"
+                      />
+                      {(() => {
+                        const availability = getServiceDateAvailability(service);
+                        if (!service.serviceDate) return <p className="text-xs text-amber-700">Choose service date</p>;
+                        if (!availability.known) return <p className="text-xs text-gray-600">Availability not mapped</p>;
+                        return (
+                          <p className={`text-xs ${availability.available ? 'text-green-700' : 'text-red-700'}`}>
+                            {availability.available ? 'Available on selected date' : 'Booked on selected date'}
+                          </p>
+                        );
+                      })()}
+                    </div>
                     <span className="mt-1 inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
                       Not sent
                     </span>

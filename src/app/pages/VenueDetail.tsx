@@ -172,6 +172,7 @@ export default function VenueDetail() {
       category: service.category,
       serviceId,
       providerId,
+      serviceDate: selectedDate || '',
     });
   };
 

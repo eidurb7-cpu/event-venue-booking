@@ -48,7 +48,7 @@ export default function Services() {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { cart, toggleService, removeService, hasService, total } = useCart();
+  const { cart, toggleService, updateServiceDate, removeService, hasService, total } = useCart();
   const [category, setCategory] = useState<CategoryFilter>('all');
   const [search, setSearch] = useState('');
   const [minRating, setMinRating] = useState(0);
@@ -244,6 +244,16 @@ export default function Services() {
     setTimeout(scrollToCart, 50);
   };
 
+  const getServiceAvailability = (item: (typeof cart.services)[number]) => {
+    const service = services.find((entry) => entry.id === item.serviceId);
+    const provider = service?.providers.find((entry) => entry.id === item.providerId);
+    if (!provider || !item.serviceDate) return { known: false, available: true };
+    return {
+      known: true,
+      available: !provider.bookedDates.includes(item.serviceDate),
+    };
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 py-12">
       <div className="container mx-auto px-4">
@@ -368,6 +378,28 @@ export default function Services() {
                 <div key={item.id} className="rounded-lg border border-gray-200 p-2.5">
                   <p className="text-sm font-medium text-gray-900">{item.title}</p>
                   <p className="text-xs text-gray-600">{item.category}</p>
+                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input
+                      type="date"
+                      value={item.serviceDate || ''}
+                      onChange={(e) => updateServiceDate(item.id, e.target.value)}
+                      className="rounded border border-gray-300 px-2 py-1.5 text-xs"
+                    />
+                    {(() => {
+                      const availability = getServiceAvailability(item);
+                      if (!item.serviceDate) {
+                        return <p className="text-xs text-amber-700">Choose service date to view availability.</p>;
+                      }
+                      if (!availability.known) {
+                        return <p className="text-xs text-gray-600">Availability not mapped for this provider.</p>;
+                      }
+                      return (
+                        <p className={`text-xs ${availability.available ? 'text-green-700' : 'text-red-700'}`}>
+                          {availability.available ? 'Available on selected date' : 'Booked on selected date'}
+                        </p>
+                      );
+                    })()}
+                  </div>
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <p className="text-sm text-gray-700">EUR {item.price.toLocaleString()}</p>
                     <button

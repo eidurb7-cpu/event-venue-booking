@@ -15,6 +15,7 @@ export type Service = {
   category?: string;
   serviceId?: string;
   providerId?: string;
+  serviceDate?: string;
 };
 
 export type Cart = {
