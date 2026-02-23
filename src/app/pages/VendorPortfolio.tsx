@@ -447,6 +447,7 @@ export default function VendorPortfolio() {
     try {
       const data = await getVendorCompliance(email.trim());
       setVendorCompliance(data.compliance);
+      setVendorProfile((prev) => (prev ? { ...prev, compliance: data.compliance } : prev));
       setContractSignature(data.signature || null);
     } catch (err) {
       if (isUnauthorizedError(err)) {
@@ -1015,7 +1016,14 @@ export default function VendorPortfolio() {
             </button>
             <button
               type="button"
-              onClick={() => loadVendorComplianceStatus(vendorEmail)}
+              onClick={async () => {
+                if (!vendorEmail.trim()) return;
+                await Promise.all([
+                  loadVendorComplianceStatus(vendorEmail),
+                  loadVendorProfile(vendorEmail),
+                  loadStripeStatus(vendorEmail),
+                ]);
+              }}
               className="rounded-lg border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50"
             >
               Refresh checklist
