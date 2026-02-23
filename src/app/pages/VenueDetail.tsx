@@ -422,7 +422,7 @@ export default function VenueDetail() {
                 <div className="flex items-center gap-2 mb-2"><CalendarIcon className="size-5 text-purple-600" /><h3 className="font-semibold text-gray-900">{t('venue.eventDate')}</h3></div>
                 {showDateRequiredRibbon && !selectedDate && (
                   <div className="mb-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
-                    Choose date first. Please select a date in the calendar.
+                    {t('venue.alert.selectDateRibbon')}. {t('venue.alert.selectDateRibbonHint')}
                   </div>
                 )}
                 <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>

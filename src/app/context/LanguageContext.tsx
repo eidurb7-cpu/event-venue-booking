@@ -153,6 +153,8 @@ const translations: Record<Language, Record<string, string>> = {
     'venue.reviews': 'Bewertungen',
     'venue.perPerson': '/Person',
     'venue.alert.selectDate': 'Bitte ein Event-Datum auswaehlen',
+    'venue.alert.selectDateRibbon': 'Datum auswaehlen',
+    'venue.alert.selectDateRibbonHint': 'Bitte zuerst ein Datum im Kalender waehlen.',
     'venue.alert.notAvailable': 'Diese Location ist am gewaehlten Datum nicht verfuegbar',
 
     'booking.title': 'Buchung abschliessen',
@@ -378,6 +380,8 @@ const translations: Record<Language, Record<string, string>> = {
     'venue.reviews': 'reviews',
     'venue.perPerson': '/person',
     'venue.alert.selectDate': 'Please select an event date',
+    'venue.alert.selectDateRibbon': 'Choose date first',
+    'venue.alert.selectDateRibbonHint': 'Please select a date in the calendar.',
     'venue.alert.notAvailable': 'This venue is not available on the selected date',
 
     'booking.title': 'Complete Your Booking',
