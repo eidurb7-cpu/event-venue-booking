@@ -151,6 +151,24 @@ function AvailabilityCalendar({
     onChange(next);
   };
 
+  const setVisibleMonthState = (state: boolean) => {
+    const next: AvailabilityMap = { ...value };
+    monthGrid.forEach((day) => {
+      if (!day.inMonth) return;
+      next[day.iso] = state;
+    });
+    onChange(next);
+  };
+
+  const clearVisibleMonth = () => {
+    const next: AvailabilityMap = { ...value };
+    monthGrid.forEach((day) => {
+      if (!day.inMonth) return;
+      delete next[day.iso];
+    });
+    onChange(next);
+  };
+
   return (
     <div className="rounded-lg border border-gray-200 p-3 mb-3">
       <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
@@ -219,6 +237,27 @@ function AvailabilityCalendar({
           className="rounded border border-gray-300 px-2 py-0.5 hover:bg-gray-50"
         >
           Clear
+        </button>
+        <button
+          type="button"
+          onClick={() => setVisibleMonthState(true)}
+          className="rounded border border-green-300 bg-green-50 px-2 py-0.5 text-green-800 hover:bg-green-100"
+        >
+          All month green
+        </button>
+        <button
+          type="button"
+          onClick={() => setVisibleMonthState(false)}
+          className="rounded border border-red-300 bg-red-50 px-2 py-0.5 text-red-800 hover:bg-red-100"
+        >
+          All month red
+        </button>
+        <button
+          type="button"
+          onClick={clearVisibleMonth}
+          className="rounded border border-gray-300 px-2 py-0.5 hover:bg-gray-50"
+        >
+          Clear month
         </button>
       </div>
       <p className="mt-2 text-[11px] text-gray-500">
