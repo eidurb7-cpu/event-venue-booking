@@ -61,6 +61,7 @@ export interface VendorApplication {
   websiteUrl?: string | null;
   portfolioUrl?: string | null;
   profileImageUrl?: string | null;
+  profileGalleryUrls?: string[];
   providedServices?: string[];
   businessIntro?: string | null;
   documentName?: string | null;
@@ -520,6 +521,7 @@ export function updateVendorProfile(payload: {
   portfolioUrl?: string;
   businessIntro?: string;
   profileImageUrl?: string;
+  profileGalleryUrls?: string[];
 }) {
   return request('/api/vendor/profile', {
     method: 'PATCH',

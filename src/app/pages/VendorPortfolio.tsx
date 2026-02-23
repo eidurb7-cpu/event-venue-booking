@@ -293,6 +293,7 @@ export default function VendorPortfolio() {
     portfolioUrl: '',
     businessIntro: '',
     profileImageUrl: '',
+    profileGalleryUrls: [] as string[],
   });
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileUploading, setProfileUploading] = useState(false);
@@ -359,6 +360,7 @@ export default function VendorPortfolio() {
       portfolioUrl: vendorProfile.portfolioUrl || '',
       businessIntro: vendorProfile.businessIntro || '',
       profileImageUrl: vendorProfile.profileImageUrl || '',
+      profileGalleryUrls: Array.isArray(vendorProfile.profileGalleryUrls) ? vendorProfile.profileGalleryUrls : [],
     });
   }, [vendorProfile]);
 
@@ -674,6 +676,7 @@ export default function VendorPortfolio() {
         portfolioUrl: profileForm.portfolioUrl.trim(),
         businessIntro: profileForm.businessIntro.trim(),
         profileImageUrl: profileForm.profileImageUrl.trim(),
+        profileGalleryUrls: profileForm.profileGalleryUrls,
       });
       setVendorProfile(data.vendor);
       setVendorName(data.vendor.businessName || vendorName);
@@ -696,6 +699,34 @@ export default function VendorPortfolio() {
     } finally {
       setProfileUploading(false);
     }
+  };
+
+  const uploadVendorGalleryImages = async (files: FileList | null) => {
+    const fileList = Array.from(files || []);
+    if (fileList.length === 0) return;
+    setProfileUploading(true);
+    setError('');
+    try {
+      const uploadedUrls = await Promise.all(fileList.map(async (file) => {
+        const uploaded = await uploadFileToPublicStorage(file);
+        return uploaded.publicUrl;
+      }));
+      setProfileForm((prev) => ({
+        ...prev,
+        profileGalleryUrls: Array.from(new Set([...(prev.profileGalleryUrls || []), ...uploadedUrls])),
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gallery upload failed.');
+    } finally {
+      setProfileUploading(false);
+    }
+  };
+
+  const removeGalleryImage = (url: string) => {
+    setProfileForm((prev) => ({
+      ...prev,
+      profileGalleryUrls: (prev.profileGalleryUrls || []).filter((item) => item !== url),
+    }));
   };
 
   const startStripeOnboarding = async () => {
@@ -983,9 +1014,39 @@ export default function VendorPortfolio() {
                     className="mt-1 block text-xs"
                   />
                 </label>
+                <label className="text-xs text-gray-600 block">
+                  Profile gallery images
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => uploadVendorGalleryImages(e.target.files)}
+                    className="mt-1 block text-xs"
+                  />
+                </label>
                 {profileUploading && <p className="text-xs text-gray-500">Uploading image...</p>}
               </div>
             </div>
+            {(profileForm.profileGalleryUrls || []).length > 0 && (
+              <div className="mb-4">
+                <p className="text-xs font-semibold text-gray-700 mb-2">Profile photos</p>
+                <div className="flex flex-wrap gap-2">
+                  {(profileForm.profileGalleryUrls || []).map((url) => (
+                    <div key={url} className="relative">
+                      <img src={url} alt="Vendor profile gallery" className="h-20 w-20 rounded object-cover border border-gray-200" />
+                      <button
+                        type="button"
+                        onClick={() => removeGalleryImage(url)}
+                        className="absolute -top-2 -right-2 rounded-full bg-red-600 text-white text-[10px] px-1.5 py-0.5"
+                        title="Remove image"
+                      >
+                        x
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-gray-700">
               <p><strong>Status:</strong> {vendorProfile.status}</p>
               <p><strong>Business:</strong> {vendorProfile.businessName}</p>

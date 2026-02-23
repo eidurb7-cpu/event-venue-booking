@@ -1819,6 +1819,7 @@ function parseVendorCategoriesMeta(rawCategories) {
     providedServices: [],
     address: null,
     profileImageUrl: null,
+    profileGalleryUrls: [],
   };
   if (Array.isArray(rawCategories)) {
     return {
@@ -1831,11 +1832,15 @@ function parseVendorCategoriesMeta(rawCategories) {
   const providedServices = Array.isArray(rawCategories.providedServices) ? rawCategories.providedServices : [];
   const address = normalizeOptionalString(rawCategories.address, 300);
   const profileImageUrl = normalizeOptionalString(rawCategories.profileImageUrl, 500);
+  const profileGalleryUrls = Array.isArray(rawCategories.profileGalleryUrls)
+    ? rawCategories.profileGalleryUrls
+    : [];
   return {
     categories: categories.map((item) => String(item || '').trim()).filter(Boolean),
     providedServices: providedServices.map((item) => String(item || '').trim()).filter(Boolean),
     address: address || null,
     profileImageUrl: profileImageUrl || null,
+    profileGalleryUrls: profileGalleryUrls.map((item) => normalizeOptionalString(item, 500)).filter(Boolean),
   };
 }
 
@@ -1854,6 +1859,9 @@ function mergeVendorCategoriesMeta(existingCategories, patch = {}) {
     profileImageUrl: Object.prototype.hasOwnProperty.call(patch, 'profileImageUrl')
       ? (normalizeOptionalString(patch.profileImageUrl, 500) || null)
       : current.profileImageUrl,
+    profileGalleryUrls: Array.isArray(patch.profileGalleryUrls)
+      ? patch.profileGalleryUrls.map((item) => normalizeOptionalString(item, 500)).filter(Boolean)
+      : current.profileGalleryUrls,
   };
   return merged;
 }
@@ -1864,6 +1872,7 @@ function mapVendorApplicationForApi(vendor, extra = {}) {
     ...vendor,
     address: meta.address || null,
     profileImageUrl: meta.profileImageUrl || null,
+    profileGalleryUrls: meta.profileGalleryUrls || [],
     providedServices: meta.providedServices || [],
     ...extra,
   };
@@ -5230,6 +5239,9 @@ createServer(async (req, res) => {
       const nextBusinessIntro = normalizeOptionalString(body.businessIntro, 2000);
       const nextAddress = normalizeOptionalString(body.address, 300);
       const nextProfileImageUrl = normalizeOptionalString(body.profileImageUrl, 500);
+      const nextProfileGalleryUrls = Array.isArray(body.profileGalleryUrls)
+        ? body.profileGalleryUrls.map((item) => normalizeOptionalString(item, 500)).filter(Boolean)
+        : undefined;
       const nextProvidedServices = Array.isArray(body.providedServices)
         ? body.providedServices.map((item) => String(item || '').trim()).filter(Boolean)
         : undefined;
@@ -5237,6 +5249,7 @@ createServer(async (req, res) => {
       const mergedCategories = mergeVendorCategoriesMeta(vendor.categories, {
         address: nextAddress,
         profileImageUrl: nextProfileImageUrl,
+        profileGalleryUrls: nextProfileGalleryUrls,
         providedServices: nextProvidedServices,
       });
 
