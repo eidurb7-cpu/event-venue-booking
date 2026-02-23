@@ -642,3 +642,29 @@ model StripeWebhookEvent {
 
   @@index([eventType, createdAt])
 }
+
+model LedgerEntry {
+  id            String   @id @default(cuid())
+  entryType     String
+  bookingId     String?
+  requestId     String?
+  offerId       String?
+  invoiceId     String?
+  payoutId      String?
+  vendorId      String?
+  customerId    String?
+  amountCents   Int?
+  currency      String   @default("eur")
+  direction     String?
+  referenceType String?
+  referenceId   String?
+  note          String?
+  payload       Json?
+  createdAt     DateTime @default(now())
+
+  @@index([entryType, createdAt])
+  @@index([bookingId, createdAt])
+  @@index([invoiceId, createdAt])
+  @@index([payoutId, createdAt])
+  @@index([referenceType, referenceId])
+}

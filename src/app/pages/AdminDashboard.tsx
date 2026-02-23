@@ -4,19 +4,26 @@ import { Bar, BarChart, CartesianGrid, Pie, PieChart, ResponsiveContainer, Toolt
 import { toast } from 'sonner';
 import {
   AdminAuditLogRow,
+  AdminKpis,
+  LedgerEntryRow,
   AdminPayoutRow,
   AdminVendorComplianceRow,
   ServiceRequest,
   VendorApplication,
   adminLogin,
   backfillAdminVendorCompliance,
+  downloadAdminBookingAccountingPackPdf,
   getAdminAuditLogs,
+  getAdminBookingAccountingPack,
+  getAdminKpis,
+  getAdminLedger,
   getAdminPayouts,
   getAdminInquiries,
   getAdminOverview,
   getAdminRequests,
   getAdminVendorCompliance,
   getAdminVendorApplications,
+  confirmVendorCompliance,
   seedAdminServices,
   seedAdminVendors,
   setOfferStatus,
@@ -112,7 +119,7 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [inquiries, setInquiries] = useState<
-    Array<{ id: string; vendorEmail: string; subject: string; message: string; status: string; createdAt: string }>
+    Array<{ id: string; vendorEmail: string; subject: string; message: string; adminReply?: string | null; status: string; createdAt: string }>
   >([]);
   const [openApplicationIds, setOpenApplicationIds] = useState<Record<string, boolean>>({});
   const [openRequestIds, setOpenRequestIds] = useState<Record<string, boolean>>({});
@@ -120,12 +127,18 @@ export default function AdminDashboard() {
   const [compliances, setCompliances] = useState<AdminVendorComplianceRow[]>([]);
   const [payouts, setPayouts] = useState<AdminPayoutRow[]>([]);
   const [auditLogs, setAuditLogs] = useState<AdminAuditLogRow[]>([]);
+  const [kpis, setKpis] = useState<AdminKpis | null>(null);
+  const [ledgerEntries, setLedgerEntries] = useState<LedgerEntryRow[]>([]);
   const [releasingPayoutId, setReleasingPayoutId] = useState('');
   const [backfillingCompliance, setBackfillingCompliance] = useState(false);
   const [reviewNoteDrafts, setReviewNoteDrafts] = useState<Record<string, string>>({});
   const [inquiryReplyDrafts, setInquiryReplyDrafts] = useState<Record<string, string>>({});
   const [inquiryAttachmentDrafts, setInquiryAttachmentDrafts] = useState<Record<string, string>>({});
   const [replyingInquiryId, setReplyingInquiryId] = useState('');
+  const [confirmingComplianceField, setConfirmingComplianceField] = useState('');
+  const [downloadingAccountingBookingId, setDownloadingAccountingBookingId] = useState('');
+  const [downloadingAccountingPdfBookingId, setDownloadingAccountingPdfBookingId] = useState('');
+  const [seedMessage, setSeedMessage] = useState('');
   const appStatusByEmail = Object.fromEntries(applications.map((app) => [String(app.email || '').toLowerCase(), app.status]));
   const activeApplications = applications.filter((a) => a.status !== 'approved');
   const approvedHistory = applications.filter((a) => a.status === 'approved');
@@ -204,6 +217,10 @@ export default function AdminDashboard() {
         getAdminPayouts(token).catch(() => ({ payouts: [] as AdminPayoutRow[] })),
         getAdminAuditLogs(token).catch(() => ({ logs: [] as AdminAuditLogRow[] })),
       ]);
+      const [kpiData, ledgerData] = await Promise.all([
+        getAdminKpis(token).catch(() => null),
+        getAdminLedger(token).catch(() => ({ entries: [] as LedgerEntryRow[] })),
+      ]);
       const complianceData = await getAdminVendorCompliance(token).catch(() => ({ compliances: [] as AdminVendorComplianceRow[] }));
       setOverview(overviewData.overview);
       setApplications(applicationsData.applications);
@@ -212,6 +229,8 @@ export default function AdminDashboard() {
       setCompliances(complianceData.compliances || []);
       setPayouts(payoutData.payouts || []);
       setAuditLogs(auditData.logs || []);
+      setKpis(kpiData);
+      setLedgerEntries(ledgerData.entries || []);
       setAdminToken(token);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Fehler beim Laden des Admin Dashboards.');
@@ -252,6 +271,9 @@ export default function AdminDashboard() {
     setRequests([]);
     setPayouts([]);
     setAuditLogs([]);
+    setKpis(null);
+    setLedgerEntries([]);
+    setSeedMessage('');
     setError('');
   };
 
@@ -268,6 +290,55 @@ export default function AdminDashboard() {
       setError(err instanceof Error ? err.message : 'Failed to release payout.');
     } finally {
       setReleasingPayoutId('');
+    }
+  };
+
+  const downloadAccountingPack = async (bookingId: string) => {
+    setError('');
+    setDownloadingAccountingBookingId(bookingId);
+    try {
+      const pack = await getAdminBookingAccountingPack(adminToken, bookingId);
+      const filename = `accounting-pack-${bookingId}.json`;
+      const blob = new Blob([JSON.stringify(pack, null, 2)], { type: 'application/json;charset=utf-8' });
+      const href = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = href;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(href);
+      toast.success(isDe ? 'Accounting-Dokument erstellt.' : 'Accounting pack generated.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to generate accounting pack.';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setDownloadingAccountingBookingId('');
+    }
+  };
+
+  const downloadAccountingPackPdf = async (bookingId: string) => {
+    setError('');
+    setDownloadingAccountingPdfBookingId(bookingId);
+    try {
+      const blob = await downloadAdminBookingAccountingPackPdf(adminToken, bookingId);
+      const filename = `accounting-pack-${bookingId}.pdf`;
+      const href = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = href;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(href);
+      toast.success(isDe ? 'Accounting-PDF erstellt.' : 'Accounting PDF generated.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to generate accounting PDF.';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setDownloadingAccountingPdfBookingId('');
     }
   };
 
@@ -305,10 +376,41 @@ export default function AdminDashboard() {
     }
   };
 
+  const confirmCompliance = async (applicationId: string, field: 'contract' | 'training') => {
+    setError('');
+    setConfirmingComplianceField(`${applicationId}:${field}`);
+    try {
+      const result = await confirmVendorCompliance(adminToken, applicationId, field);
+      setApplications((prev) => prev.map((app) => (
+        app.id === applicationId
+          ? { ...app, compliance: result.compliance }
+          : app
+      )));
+      setSelectedApplication((prev) => (
+        prev && prev.id === applicationId
+          ? { ...prev, compliance: result.compliance }
+          : prev
+      ));
+      void loadDashboard();
+      toast.success(field === 'contract'
+        ? (isDe ? 'Vertrag bestaetigt.' : 'Contract confirmed.')
+        : (isDe ? 'Training bestaetigt.' : 'Training confirmed.'));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to confirm compliance.';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setConfirmingComplianceField('');
+    }
+  };
+
   const seedServices = async () => {
     setError('');
     try {
-      await seedAdminServices(adminToken);
+      const result = await seedAdminServices(adminToken);
+      const msg = `Seed done: ${result.count} services available.`;
+      setSeedMessage(msg);
+      toast.success(msg);
       await loadDashboard();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Fehler beim Seed von Services.');
@@ -318,7 +420,10 @@ export default function AdminDashboard() {
   const seedVendors = async () => {
     setError('');
     try {
-      await seedAdminVendors(adminToken);
+      const result = await seedAdminVendors(adminToken);
+      const msg = `Seed done: ${result.count} demo vendors upserted.`;
+      setSeedMessage(msg);
+      toast.success(msg);
       await loadDashboard();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Fehler beim Seed von Demo-Vendors.');
@@ -372,7 +477,11 @@ export default function AdminDashboard() {
       setInquiries((prev) => prev.map((row) => (row.id === inquiryId ? result.inquiry : row)));
       setInquiryReplyDrafts((prev) => ({ ...prev, [inquiryId]: '' }));
       setInquiryAttachmentDrafts((prev) => ({ ...prev, [inquiryId]: '' }));
-      toast.success(isDe ? 'Antwort gesendet.' : 'Reply sent.');
+      if (result.emailSent === false) {
+        toast.warning(isDe ? 'Antwort gespeichert, aber E-Mail wurde nicht zugestellt.' : 'Reply saved, but email was not delivered.');
+      } else {
+        toast.success(isDe ? 'Antwort gesendet.' : 'Reply sent.');
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to send reply.';
       setError(message);
@@ -452,18 +561,18 @@ export default function AdminDashboard() {
               <button
                 type="button"
                 onClick={seedServices}
-                title={isDe ? 'Demo-Servicekatalog in die Datenbank schreiben' : 'Insert demo service catalog into database'}
+                title={isDe ? 'Setup: Demo-Servicekatalog in die Datenbank schreiben' : 'Setup: insert demo service catalog into database'}
                 className="rounded-lg border border-purple-300 text-purple-700 px-4 py-2.5 text-sm hover:bg-purple-50"
               >
-                {tx.seedServices}
+                {isDe ? 'Setup: Services seeden' : 'Setup: seed services'}
               </button>
               <button
                 type="button"
                 onClick={seedVendors}
-                title={isDe ? 'Demo-Anbieter und Profile anlegen' : 'Create demo vendors and profiles'}
+                title={isDe ? 'Setup: Demo-Anbieter und Profile anlegen/aktualisieren' : 'Setup: create/update demo vendors and profiles'}
                 className="rounded-lg border border-green-300 text-green-700 px-4 py-2.5 text-sm hover:bg-green-50"
               >
-                {tx.seedVendors}
+                {isDe ? 'Setup: Vendor seeden' : 'Setup: seed vendors'}
               </button>
               <button
                 type="button"
@@ -478,6 +587,14 @@ export default function AdminDashboard() {
           {error && (
             <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {error}
+            </div>
+          )}
+          <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+            Build/Node.js is a terminal action (`npm run build`). Buttons here perform admin data operations.
+          </div>
+          {seedMessage && (
+            <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              {seedMessage}
             </div>
           )}
           <div className="mt-5 flex flex-wrap gap-2">
@@ -509,6 +626,27 @@ export default function AdminDashboard() {
             <StatCard title={isDe ? 'Geschlossene Anfragen' : 'Closed requests'} value={overview.closedRequests} />
             <StatCard title={isDe ? 'Abgelaufene Anfragen' : 'Expired requests'} value={overview.expiredRequests} />
             <StatCard title={isDe ? 'Gesamte Angebote' : 'Total offers'} value={overview.totalOffers} />
+          </div>
+        )}
+
+        {activeSection === 'overview' && kpis && (
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+              <h2 className="text-xl font-semibold text-gray-900">Capability KPIs (30d)</h2>
+              <p className="text-xs text-gray-500">{new Date(kpis.window.from).toLocaleDateString()} - {new Date(kpis.window.to).toLocaleDateString()}</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3 text-sm">
+              <div className="rounded-lg border border-gray-200 p-3"><strong>First offer:</strong> {kpis.kpis.requestToFirstOfferMinutes ?? '-'} min</div>
+              <div className="rounded-lg border border-gray-200 p-3"><strong>Offer acceptance:</strong> {(kpis.kpis.offerAcceptanceRate * 100).toFixed(1)}%</div>
+              <div className="rounded-lg border border-gray-200 p-3"><strong>On-time completion:</strong> {(kpis.kpis.onTimeCompletionRate * 100).toFixed(1)}%</div>
+              <div className="rounded-lg border border-gray-200 p-3"><strong>SLA compliance:</strong> {kpis.kpis.vendorResponseSlaComplianceRate == null ? '-' : `${(kpis.kpis.vendorResponseSlaComplianceRate * 100).toFixed(1)}%`}</div>
+              <div className="rounded-lg border border-gray-200 p-3"><strong>Avg payout time:</strong> {kpis.kpis.avgPayoutTimeHours == null ? '-' : `${kpis.kpis.avgPayoutTimeHours} h`}</div>
+              <div className="rounded-lg border border-gray-200 p-3"><strong>Repeat booking:</strong> {(kpis.kpis.repeatBookingRate * 100).toFixed(1)}%</div>
+              <div className="rounded-lg border border-gray-200 p-3"><strong>Dispute/refund:</strong> {(kpis.kpis.disputeRate * 100).toFixed(1)}%</div>
+              <div className="rounded-lg border border-gray-200 p-3"><strong>Chargeback:</strong> {(kpis.kpis.chargebackRate * 100).toFixed(2)}%</div>
+              <div className="rounded-lg border border-gray-200 p-3"><strong>Avg rating:</strong> {kpis.kpis.averageRating ?? '-'}</div>
+              <div className="rounded-lg border border-gray-200 p-3"><strong>Review count:</strong> {kpis.kpis.reviewCount}</div>
+            </div>
           </div>
         )}
 
@@ -904,6 +1042,7 @@ export default function AdminDashboard() {
                     <th className="py-2 pr-3">Transfer</th>
                     <th className="py-2 pr-3">Status</th>
                     <th className="py-2 pr-3">Action</th>
+                    <th className="py-2 pr-3">Documents</th>
                     <th className="py-2 pr-3">Updated</th>
                   </tr>
                 </thead>
@@ -954,7 +1093,68 @@ export default function AdminDashboard() {
                           <span className="text-xs text-gray-500">-</span>
                         )}
                       </td>
+                      <td className="py-2 pr-3">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => downloadAccountingPack(row.bookingId)}
+                            disabled={downloadingAccountingBookingId === row.bookingId}
+                            className="rounded-md border border-indigo-300 px-2 py-1 text-xs text-indigo-700 hover:bg-indigo-50 disabled:opacity-60"
+                          >
+                            {downloadingAccountingBookingId === row.bookingId ? 'Generating...' : 'JSON'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => downloadAccountingPackPdf(row.bookingId)}
+                            disabled={downloadingAccountingPdfBookingId === row.bookingId}
+                            className="rounded-md border border-blue-300 px-2 py-1 text-xs text-blue-700 hover:bg-blue-50 disabled:opacity-60"
+                          >
+                            {downloadingAccountingPdfBookingId === row.bookingId ? 'Generating...' : 'PDF'}
+                          </button>
+                        </div>
+                      </td>
                       <td className="py-2 pr-3">{row.updatedAt ? new Date(row.updatedAt).toLocaleString() : '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        )}
+
+        {activeSection === 'overview' && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+            <h2 className="text-xl font-semibold text-gray-900">Ledger (latest 500)</h2>
+            <p className="text-xs text-gray-500">Append-only financial event journal</p>
+          </div>
+          {ledgerEntries.length === 0 ? (
+            <p className="text-sm text-gray-600">No ledger entries yet (or ledger model not migrated).</p>
+          ) : (
+            <div className="overflow-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left border-b border-gray-200">
+                    <th className="py-2 pr-3">When</th>
+                    <th className="py-2 pr-3">Type</th>
+                    <th className="py-2 pr-3">Booking</th>
+                    <th className="py-2 pr-3">Invoice/Payout</th>
+                    <th className="py-2 pr-3">Amount</th>
+                    <th className="py-2 pr-3">Direction</th>
+                    <th className="py-2 pr-3">Reference</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ledgerEntries.map((row) => (
+                    <tr key={row.id} className="border-b border-gray-100">
+                      <td className="py-2 pr-3">{row.createdAt ? new Date(row.createdAt).toLocaleString() : '-'}</td>
+                      <td className="py-2 pr-3">{row.entryType}</td>
+                      <td className="py-2 pr-3 font-mono text-xs">{row.bookingId || '-'}</td>
+                      <td className="py-2 pr-3 font-mono text-xs">{row.invoiceId || row.payoutId || '-'}</td>
+                      <td className="py-2 pr-3">{row.amountCents == null ? '-' : `${(Number(row.amountCents) / 100).toFixed(2)} ${String(row.currency || 'eur').toUpperCase()}`}</td>
+                      <td className="py-2 pr-3">{row.direction || '-'}</td>
+                      <td className="py-2 pr-3 font-mono text-xs">{row.referenceType || '-'}:{row.referenceId || '-'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1024,6 +1224,11 @@ export default function AdminDashboard() {
                 </div>
                 <p className="text-sm text-gray-700 mt-1">{tx.from}: {inq.vendorEmail}</p>
                 <p className="text-sm text-gray-600 mt-1">{inq.message}</p>
+                {inq.adminReply && (
+                  <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-800 whitespace-pre-wrap">
+                    {isDe ? 'Letzte Admin-Antwort:' : 'Latest admin reply:'} {inq.adminReply}
+                  </div>
+                )}
                 <div className="mt-3 flex flex-col sm:flex-row gap-2">
                   <div className="flex-1 space-y-2">
                     <input
@@ -1110,6 +1315,36 @@ export default function AdminDashboard() {
                   ) : (
                     <p><strong>Dokument:</strong> -</p>
                   )}
+                </div>
+
+                <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+                  <p className="font-medium text-indigo-900 mb-2">{isDe ? 'Admin-Bestaetigungen' : 'Admin confirmations'}</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => confirmCompliance(selectedApplication.id, 'contract')}
+                      disabled={Boolean(selectedApplication.compliance?.contractAccepted) || confirmingComplianceField === `${selectedApplication.id}:contract`}
+                      className="rounded-lg bg-indigo-600 text-white px-3 py-2 text-sm hover:bg-indigo-700 disabled:opacity-60"
+                    >
+                      {selectedApplication.compliance?.contractAccepted
+                        ? (isDe ? 'Vertrag bestaetigt' : 'Contract confirmed')
+                        : (confirmingComplianceField === `${selectedApplication.id}:contract`
+                          ? (isDe ? 'Bestaetige...' : 'Confirming...')
+                          : (isDe ? 'Vertrag bestaetigen' : 'Confirm contract'))}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => confirmCompliance(selectedApplication.id, 'training')}
+                      disabled={Boolean(selectedApplication.compliance?.trainingCompleted) || confirmingComplianceField === `${selectedApplication.id}:training`}
+                      className="rounded-lg bg-slate-900 text-white px-3 py-2 text-sm hover:bg-black disabled:opacity-60"
+                    >
+                      {selectedApplication.compliance?.trainingCompleted
+                        ? (isDe ? 'Training bestaetigt' : 'Training confirmed')
+                        : (confirmingComplianceField === `${selectedApplication.id}:training`
+                          ? (isDe ? 'Bestaetige...' : 'Confirming...')
+                          : (isDe ? 'Training bestaetigen' : 'Confirm training'))}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="rounded-lg border border-gray-200 p-3">

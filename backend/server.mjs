@@ -335,12 +335,29 @@ function normalizeMatchText(input) {
 }
 
 function extractKeywordSet(values) {
+  const stopwords = new Set([
+    'event',
+    'events',
+    'service',
+    'services',
+    'client',
+    'customer',
+    'selected',
+    'venue',
+    'budget',
+    'email',
+    'phone',
+    'message',
+    'request',
+    'anbieter',
+    'kunde',
+  ]);
   const result = new Set();
   for (const value of values || []) {
     const normalized = normalizeMatchText(value);
     if (!normalized) continue;
     for (const token of normalized.split(/\s+/)) {
-      if (token.length >= 3) result.add(token);
+      if (token.length >= 3 && !stopwords.has(token)) result.add(token);
     }
   }
   return result;
@@ -381,6 +398,14 @@ function intersects(setA, setB) {
     if (setB.has(item)) return true;
   }
   return false;
+}
+
+function intersectionCount(setA, setB) {
+  let count = 0;
+  for (const item of setA) {
+    if (setB.has(item)) count += 1;
+  }
+  return count;
 }
 
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
@@ -430,6 +455,347 @@ function computeTotalsFromGross(grossAmountCents, vatRate = DEFAULT_VAT_RATE, co
     grossAmount,
     platformFee,
     vendorNetAmount,
+  };
+}
+
+function centsToEur(value) {
+  return Number((Number(value || 0) / 100).toFixed(2));
+}
+
+function buildBookingApprovalStatement({ booking, customer, items, agreement, invoice, payouts }) {
+  const services = (items || [])
+    .map((item) => `${item?.service?.title || 'Service'} (${item?.status || 'unknown'})`)
+    .join(', ');
+  return [
+    'BOOKING APPROVAL CERTIFICATE',
+    `Booking ID: ${booking.id}`,
+    `Booking status: ${booking.status}`,
+    `Event date: ${booking.eventDate ? new Date(booking.eventDate).toISOString() : '-'}`,
+    `Customer: ${customer?.name || '-'} <${customer?.email || '-'}>`,
+    `Customer address: ${customer?.customerProfile?.address || '-'}`,
+    `Services: ${services || '-'}`,
+    `Agreement version: ${agreement?.agreementVersion || '-'}`,
+    `Customer accepted at: ${agreement?.customerAcceptedAt ? new Date(agreement.customerAcceptedAt).toISOString() : '-'}`,
+    `Vendor accepted at: ${agreement?.vendorAcceptedAt ? new Date(agreement.vendorAcceptedAt).toISOString() : '-'}`,
+    `Invoice status: ${invoice?.status || '-'}`,
+    `Invoice amount (EUR): ${centsToEur(invoice?.amount || 0).toFixed(2)}`,
+    `Invoice paid at: ${invoice?.paidAt ? new Date(invoice.paidAt).toISOString() : '-'}`,
+    `Payouts count: ${(payouts || []).length}`,
+    `Generated at: ${new Date().toISOString()}`,
+  ].join('\n');
+}
+
+function escapePdfText(input) {
+  const ascii = String(input || '')
+    .replace(/[^\x20-\x7e]/g, '?')
+    .replace(/\\/g, '\\\\')
+    .replace(/\(/g, '\\(')
+    .replace(/\)/g, '\\)');
+  return ascii;
+}
+
+function buildSimplePdfBuffer(lines) {
+  const maxLinesPerPage = 48;
+  const lineChunks = [];
+  for (let i = 0; i < lines.length; i += maxLinesPerPage) {
+    lineChunks.push(lines.slice(i, i + maxLinesPerPage));
+  }
+  if (lineChunks.length === 0) lineChunks.push(['']);
+
+  const objects = new Map();
+  objects.set(1, '<< /Type /Catalog /Pages 2 0 R >>');
+  const fontObjNum = 3;
+
+  const kids = [];
+  lineChunks.forEach((chunk, index) => {
+    const pageObjNum = 4 + index * 2;
+    const contentObjNum = pageObjNum + 1;
+    kids.push(`${pageObjNum} 0 R`);
+    const streamLines = [
+      'BT',
+      '/F1 10 Tf',
+      '50 800 Td',
+    ];
+    chunk.forEach((line, idx) => {
+      if (idx > 0) streamLines.push('0 -16 Td');
+      streamLines.push(`(${escapePdfText(line)}) Tj`);
+    });
+    streamLines.push('ET');
+    const stream = `${streamLines.join('\n')}\n`;
+    objects.set(contentObjNum, `<< /Length ${Buffer.byteLength(stream, 'utf8')} >>\nstream\n${stream}endstream`);
+    objects.set(
+      pageObjNum,
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontObjNum} 0 R >> >> /Contents ${contentObjNum} 0 R >>`,
+    );
+  });
+
+  objects.set(2, `<< /Type /Pages /Count ${lineChunks.length} /Kids [${kids.join(' ')}] >>`);
+  objects.set(fontObjNum, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+
+  const objectNumbers = Array.from(objects.keys()).sort((a, b) => a - b);
+  let pdf = '%PDF-1.4\n';
+  const offsets = new Map();
+  for (const objNum of objectNumbers) {
+    offsets.set(objNum, Buffer.byteLength(pdf, 'utf8'));
+    pdf += `${objNum} 0 obj\n${objects.get(objNum)}\nendobj\n`;
+  }
+  const xrefPos = Buffer.byteLength(pdf, 'utf8');
+  const maxObjNum = objectNumbers[objectNumbers.length - 1] || 0;
+  pdf += `xref\n0 ${maxObjNum + 1}\n`;
+  pdf += '0000000000 65535 f \n';
+  for (let i = 1; i <= maxObjNum; i += 1) {
+    const offset = offsets.get(i) || 0;
+    pdf += `${String(offset).padStart(10, '0')} 00000 n \n`;
+  }
+  pdf += `trailer\n<< /Size ${maxObjNum + 1} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF`;
+  return Buffer.from(pdf, 'utf8');
+}
+
+function buildAccountingPackPdfLines(pack) {
+  const lines = [
+    'EventVenue Marketplace - Accounting Pack',
+    `Generated: ${pack.generatedAt || '-'}`,
+    `Booking ID: ${pack.booking?.id || '-'}`,
+    `Booking Status: ${pack.booking?.status || '-'}`,
+    `Event Date: ${pack.booking?.eventDate || '-'}`,
+    '',
+    'Customer',
+    `Name: ${pack.customer?.name || '-'}`,
+    `Email: ${pack.customer?.email || '-'}`,
+    `Address: ${pack.customer?.address || '-'}`,
+    `Phone: ${pack.customer?.phone || '-'}`,
+    '',
+    'Services',
+  ];
+
+  for (const service of pack.services || []) {
+    lines.push(
+      `- ${service.serviceTitle || service.serviceId || 'Service'} | ${service.status} | Offered EUR ${(Number(service.priceOfferedCents || 0) / 100).toFixed(2)} | Vendor ${service.vendor?.businessName || service.vendor?.email || '-'}`,
+    );
+  }
+
+  lines.push('', 'Agreement');
+  lines.push(`Customer accepted: ${pack.agreement?.customerAccepted ? 'yes' : 'no'} at ${pack.agreement?.customerAcceptedAt || '-'}`);
+  lines.push(`Vendor accepted: ${pack.agreement?.vendorAccepted ? 'yes' : 'no'} at ${pack.agreement?.vendorAcceptedAt || '-'}`);
+  lines.push('', 'Invoice');
+  lines.push(`Invoice ID: ${pack.invoice?.id || '-'}`);
+  lines.push(`Status: ${pack.invoice?.status || '-'}`);
+  lines.push(`Amount EUR: ${Number(pack.invoice?.amountEur || 0).toFixed(2)}`);
+  lines.push(`Paid At: ${pack.invoice?.paidAt || '-'}`);
+  lines.push('', 'Payouts');
+  for (const payout of pack.payouts || []) {
+    lines.push(
+      `- ${payout.id}: ${payout.status} | Gross ${(Number(payout.grossAmountEur || 0)).toFixed(2)} | Fee ${(Number(payout.platformFeeEur || 0)).toFixed(2)} | Net ${(Number(payout.vendorNetAmountEur || 0)).toFixed(2)} | Transfer ${payout.stripeTransferId || '-'}`,
+    );
+  }
+  lines.push('', 'Totals');
+  lines.push(`Invoice EUR: ${Number(pack.totals?.invoiceAmountEur || 0).toFixed(2)}`);
+  lines.push(`Payout Gross EUR: ${Number(pack.totals?.payoutGrossEur || 0).toFixed(2)}`);
+  lines.push(`Platform Fee EUR: ${Number(pack.totals?.payoutPlatformFeeEur || 0).toFixed(2)}`);
+  lines.push(`Vendor Net EUR: ${Number(pack.totals?.payoutVendorNetEur || 0).toFixed(2)}`);
+  lines.push('', 'Approval Certificate');
+  for (const line of String(pack.approvalCertificate?.statementText || '').split('\n')) {
+    lines.push(line);
+  }
+  lines.push('', `Certificate ID: ${pack.approvalCertificate?.certificateId || '-'}`);
+  lines.push(`Issued By: ${pack.approvalCertificate?.issuedBy || '-'}`);
+  lines.push(`Issued At: ${pack.approvalCertificate?.issuedAt || '-'}`);
+  return lines;
+}
+
+async function buildAdminBookingAccountingPack(bookingId, req) {
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      customer: {
+        include: {
+          customerProfile: {
+            select: { address: true, phone: true },
+          },
+        },
+      },
+      items: {
+        include: {
+          service: { select: { id: true, title: true, category: true } },
+          vendor: {
+            include: {
+              user: { select: { name: true, email: true } },
+              vendorApplication: {
+                select: { businessName: true, contactName: true, city: true, websiteUrl: true, email: true },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+      },
+      invoice: true,
+      agreement: true,
+      payouts: {
+        include: {
+          vendor: {
+            include: {
+              user: { select: { name: true, email: true } },
+              vendorApplication: {
+                select: { businessName: true, contactName: true, city: true, websiteUrl: true, email: true },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+      },
+      offerEvents: {
+        orderBy: { createdAt: 'asc' },
+      },
+    },
+  });
+  if (!booking) return null;
+
+  const targetIds = [
+    booking.id,
+    booking.invoice?.id || null,
+    ...(booking.payouts || []).map((row) => row.id),
+  ].filter(Boolean);
+
+  let auditTrail = [];
+  if (supportsPrismaModel('adminAuditLog')) {
+    try {
+      auditTrail = await prisma.adminAuditLog.findMany({
+        where: {
+          OR: [
+            { targetId: { in: targetIds } },
+            { metaJson: { contains: booking.id } },
+          ],
+        },
+        orderBy: { createdAt: 'asc' },
+        take: 300,
+      });
+    } catch (error) {
+      if (!isPrismaTableMissingError(error)) throw error;
+    }
+  }
+
+  const totals = {
+    invoiceAmountCents: Number(booking.invoice?.amount || 0),
+    invoiceAmountEur: centsToEur(booking.invoice?.amount || 0),
+    payoutGrossCents: (booking.payouts || []).reduce((sum, row) => sum + Number(row.grossAmount || 0), 0),
+    payoutPlatformFeeCents: (booking.payouts || []).reduce((sum, row) => sum + Number(row.platformFee || 0), 0),
+    payoutVendorNetCents: (booking.payouts || []).reduce((sum, row) => sum + Number(row.vendorNetAmount || 0), 0),
+  };
+  totals.payoutGrossEur = centsToEur(totals.payoutGrossCents);
+  totals.payoutPlatformFeeEur = centsToEur(totals.payoutPlatformFeeCents);
+  totals.payoutVendorNetEur = centsToEur(totals.payoutVendorNetCents);
+
+  const statementText = buildBookingApprovalStatement({
+    booking,
+    customer: booking.customer,
+    items: booking.items || [],
+    agreement: booking.agreement,
+    invoice: booking.invoice,
+    payouts: booking.payouts || [],
+  });
+
+  return {
+    generatedAt: new Date().toISOString(),
+    booking: {
+      id: booking.id,
+      status: booking.status,
+      eventDate: booking.eventDate ? new Date(booking.eventDate).toISOString() : null,
+      createdAt: booking.createdAt ? new Date(booking.createdAt).toISOString() : null,
+      updatedAt: booking.updatedAt ? new Date(booking.updatedAt).toISOString() : null,
+    },
+    customer: {
+      id: booking.customer?.id || null,
+      name: booking.customer?.name || null,
+      email: booking.customer?.email || null,
+      address: booking.customer?.customerProfile?.address || null,
+      phone: booking.customer?.customerProfile?.phone || null,
+    },
+    services: (booking.items || []).map((item) => ({
+      bookingItemId: item.id,
+      serviceId: item.serviceId,
+      serviceTitle: item.service?.title || null,
+      serviceCategory: item.service?.category || null,
+      status: item.status,
+      priceOfferedCents: Number(item.priceOffered || 0),
+      finalPriceCents: item.finalPrice != null ? Number(item.finalPrice) : null,
+      vendor: {
+        vendorId: item.vendorId,
+        businessName: item.vendor?.vendorApplication?.businessName || item.vendor?.businessName || item.vendor?.user?.name || null,
+        contactName: item.vendor?.vendorApplication?.contactName || item.vendor?.user?.name || null,
+        email: item.vendor?.vendorApplication?.email || item.vendor?.user?.email || null,
+        city: item.vendor?.vendorApplication?.city || null,
+        websiteUrl: item.vendor?.vendorApplication?.websiteUrl || null,
+      },
+    })),
+    agreement: booking.agreement
+      ? {
+          id: booking.agreement.id,
+          agreementVersion: booking.agreement.agreementVersion || null,
+          customerAccepted: Boolean(booking.agreement.customerAccepted),
+          customerAcceptedAt: booking.agreement.customerAcceptedAt ? new Date(booking.agreement.customerAcceptedAt).toISOString() : null,
+          customerAcceptedIP: booking.agreement.customerAcceptedIP || null,
+          vendorAccepted: Boolean(booking.agreement.vendorAccepted),
+          vendorAcceptedAt: booking.agreement.vendorAcceptedAt ? new Date(booking.agreement.vendorAcceptedAt).toISOString() : null,
+        }
+      : null,
+    invoice: booking.invoice
+      ? {
+          id: booking.invoice.id,
+          status: booking.invoice.status,
+          amountCents: Number(booking.invoice.amount || 0),
+          amountEur: centsToEur(booking.invoice.amount || 0),
+          stripeSessionId: booking.invoice.stripeSessionId || null,
+          issuedAt: booking.invoice.issuedAt ? new Date(booking.invoice.issuedAt).toISOString() : null,
+          paidAt: booking.invoice.paidAt ? new Date(booking.invoice.paidAt).toISOString() : null,
+          failedAt: booking.invoice.failedAt ? new Date(booking.invoice.failedAt).toISOString() : null,
+        }
+      : null,
+    payouts: (booking.payouts || []).map((row) => ({
+      id: row.id,
+      status: row.status,
+      stripeTransferId: row.stripeTransferId || null,
+      grossAmountCents: Number(row.grossAmount || 0),
+      grossAmountEur: centsToEur(row.grossAmount || 0),
+      platformFeeCents: Number(row.platformFee || 0),
+      platformFeeEur: centsToEur(row.platformFee || 0),
+      vendorNetAmountCents: Number(row.vendorNetAmount || 0),
+      vendorNetAmountEur: centsToEur(row.vendorNetAmount || 0),
+      vendor: {
+        vendorId: row.vendorId,
+        businessName: row.vendor?.vendorApplication?.businessName || row.vendor?.businessName || row.vendor?.user?.name || null,
+        contactName: row.vendor?.vendorApplication?.contactName || row.vendor?.user?.name || null,
+        email: row.vendor?.vendorApplication?.email || row.vendor?.user?.email || null,
+        city: row.vendor?.vendorApplication?.city || null,
+        websiteUrl: row.vendor?.vendorApplication?.websiteUrl || null,
+      },
+      createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+      updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+    })),
+    totals,
+    offerHistory: (booking.offerEvents || []).map((event) => ({
+      id: event.id,
+      bookingItemId: event.bookingItemId,
+      actorRole: event.actorRole,
+      type: event.type,
+      offerVersion: event.offerVersion,
+      priceCents: event.priceCents != null ? Number(event.priceCents) : null,
+      reason: event.reason || null,
+      createdAt: event.createdAt ? new Date(event.createdAt).toISOString() : null,
+    })),
+    adminAuditTrail: (auditTrail || []).map((row) => ({
+      id: row.id,
+      adminId: row.adminId,
+      action: row.action,
+      targetId: row.targetId || null,
+      metaJson: row.metaJson || null,
+      createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+    })),
+    approvalCertificate: {
+      certificateId: `APPROVAL-${booking.id}-${Date.now()}`,
+      statementText,
+      issuedAt: new Date().toISOString(),
+      issuedBy: getAdminActorId(req),
+    },
   };
 }
 
@@ -516,6 +882,34 @@ async function writeAdminAuditLog(req, action, targetId = null, meta = null) {
     });
   } catch (error) {
     if (!isPrismaTableMissingError(error)) throw error;
+  }
+}
+
+async function appendLedgerEntry(entry) {
+  if (!supportsPrismaModel('ledgerEntry')) return null;
+  try {
+    return await prisma.ledgerEntry.create({
+      data: {
+        entryType: String(entry?.entryType || 'unknown'),
+        bookingId: entry?.bookingId ? String(entry.bookingId) : null,
+        requestId: entry?.requestId ? String(entry.requestId) : null,
+        offerId: entry?.offerId ? String(entry.offerId) : null,
+        invoiceId: entry?.invoiceId ? String(entry.invoiceId) : null,
+        payoutId: entry?.payoutId ? String(entry.payoutId) : null,
+        vendorId: entry?.vendorId ? String(entry.vendorId) : null,
+        customerId: entry?.customerId ? String(entry.customerId) : null,
+        amountCents: Number.isFinite(Number(entry?.amountCents)) ? Math.round(Number(entry.amountCents)) : null,
+        currency: normalizeOptionalString(entry?.currency, 10) || 'eur',
+        direction: normalizeOptionalString(entry?.direction, 32),
+        referenceType: normalizeOptionalString(entry?.referenceType, 64),
+        referenceId: normalizeOptionalString(entry?.referenceId, 191),
+        note: normalizeOptionalString(entry?.note, 1200),
+        payload: entry?.payload || null,
+      },
+    });
+  } catch (error) {
+    if (!isPrismaTableMissingError(error)) throw error;
+    return null;
   }
 }
 
@@ -1093,6 +1487,18 @@ async function createOrUpdatePayoutRecordsForBooking(bookingId, options = {}) {
           status: targetStatus,
         },
       });
+
+      await appendLedgerEntry({
+        entryType: 'payout_record_upserted',
+        bookingId: booking.id,
+        vendorId,
+        amountCents: vendorNetAmount,
+        direction: 'platform_to_vendor_pending',
+        referenceType: 'booking_vendor',
+        referenceId: `${booking.id}:${vendorId}`,
+        note: `Payout record upserted with status ${targetStatus}`,
+        payload: { grossAmount, platformFee, vendorNetAmount, targetStatus },
+      });
     }
   } catch (error) {
     if (!isPrismaTableMissingError(error)) throw error;
@@ -1121,6 +1527,17 @@ async function createStripeTransfersForBookingPayouts(bookingId, paymentIntentId
         where: { id: payout.id },
         data: { status: 'failed' },
       });
+      await appendLedgerEntry({
+        entryType: 'payout_failed',
+        bookingId: bookingId,
+        payoutId: payout.id,
+        vendorId: payout.vendorId,
+        amountCents: payout.vendorNetAmount,
+        direction: 'platform_to_vendor',
+        referenceType: 'payout',
+        referenceId: payout.id,
+        note: 'Payout failed: non-positive vendorNetAmount',
+      });
       continue;
     }
 
@@ -1129,6 +1546,17 @@ async function createStripeTransfersForBookingPayouts(bookingId, paymentIntentId
       await prisma.payout.update({
         where: { id: payout.id },
         data: { status: 'failed' },
+      });
+      await appendLedgerEntry({
+        entryType: 'payout_failed',
+        bookingId: bookingId,
+        payoutId: payout.id,
+        vendorId: payout.vendorId,
+        amountCents: payout.vendorNetAmount,
+        direction: 'platform_to_vendor',
+        referenceType: 'payout',
+        referenceId: payout.id,
+        note: 'Payout failed: missing Stripe destination account',
       });
       continue;
     }
@@ -1160,10 +1588,33 @@ async function createStripeTransfersForBookingPayouts(bookingId, paymentIntentId
           status: 'paid',
         },
       });
+      await appendLedgerEntry({
+        entryType: 'payout_paid',
+        bookingId: bookingId,
+        payoutId: payout.id,
+        vendorId: payout.vendorId,
+        amountCents: payout.vendorNetAmount,
+        direction: 'platform_to_vendor',
+        referenceType: 'stripe_transfer',
+        referenceId: transfer.id,
+        note: 'Stripe transfer completed',
+        payload: { transferGroup, destination, paymentIntentId },
+      });
     } catch {
       await prisma.payout.update({
         where: { id: payout.id },
         data: { status: 'failed' },
+      });
+      await appendLedgerEntry({
+        entryType: 'payout_failed',
+        bookingId: bookingId,
+        payoutId: payout.id,
+        vendorId: payout.vendorId,
+        amountCents: payout.vendorNetAmount,
+        direction: 'platform_to_vendor',
+        referenceType: 'payout',
+        referenceId: payout.id,
+        note: 'Stripe transfer creation failed',
       });
     }
   }
@@ -1518,8 +1969,39 @@ async function verifyGoogleIdToken(idToken) {
   return data;
 }
 
+const ADMIN_REPLY_MARKER = '\n\n---ADMIN_REPLY---\n';
+
+function splitInquiryMessage(rawMessage) {
+  const message = String(rawMessage || '');
+  const markerIndex = message.indexOf(ADMIN_REPLY_MARKER);
+  if (markerIndex < 0) {
+    return {
+      vendorMessage: message,
+      adminReply: null,
+    };
+  }
+  const vendorMessage = message.slice(0, markerIndex).trim();
+  const adminReply = message.slice(markerIndex + ADMIN_REPLY_MARKER.length).trim() || null;
+  return { vendorMessage, adminReply };
+}
+
+function serializeVendorInquiryForApi(row) {
+  const parts = splitInquiryMessage(row.message);
+  return {
+    id: row.id,
+    vendorEmail: row.vendorEmail,
+    subject: row.subject,
+    message: parts.vendorMessage,
+    adminReply: parts.adminReply,
+    status: row.status,
+    createdAt: row.createdAt,
+  };
+}
+
 async function sendMailSafe({ to, subject, text, html }) {
-  if (!mailTransporter || !SMTP_FROM || !to) return;
+  if (!mailTransporter || !SMTP_FROM || !to) {
+    return { sent: false, error: 'SMTP is not configured' };
+  }
   try {
     await mailTransporter.sendMail({
       from: SMTP_FROM,
@@ -1528,8 +2010,9 @@ async function sendMailSafe({ to, subject, text, html }) {
       text,
       html,
     });
+    return { sent: true };
   } catch {
-    // Keep API resilient when email provider is unavailable.
+    return { sent: false, error: 'Email provider rejected delivery' };
   }
 }
 
@@ -1590,8 +2073,24 @@ createServer(async (req, res) => {
                 paidAt: new Date(),
               },
             });
+            await appendLedgerEntry({
+              entryType: 'offer_payment_paid',
+              requestId,
+              offerId,
+              amountCents: Number(session.amount_total || 0),
+              direction: 'customer_to_platform',
+              referenceType: 'stripe_checkout_session',
+              referenceId: String(session.id || ''),
+              note: 'Legacy offer checkout completed',
+              payload: {
+                paymentIntentId,
+                customerEmail: session.customer_details?.email || null,
+              },
+            });
           }
           if (bookingId) {
+            let paidInvoice = null;
+            let paidBooking = null;
             await prisma.$transaction(async (tx) => {
               if (invoiceId) {
                 await tx.invoice.updateMany({
@@ -1602,6 +2101,7 @@ createServer(async (req, res) => {
                     stripeSessionId: session.id || null,
                   },
                 });
+                paidInvoice = await tx.invoice.findFirst({ where: { id: invoiceId, bookingId } });
               } else {
                 await tx.invoice.updateMany({
                   where: { bookingId },
@@ -1611,8 +2111,9 @@ createServer(async (req, res) => {
                     stripeSessionId: session.id || null,
                   },
                 });
+                paidInvoice = await tx.invoice.findFirst({ where: { bookingId } });
               }
-              const booking = await tx.booking.update({
+              paidBooking = await tx.booking.update({
                 where: { id: bookingId },
                 data: {
                   status: 'paid',
@@ -1621,7 +2122,19 @@ createServer(async (req, res) => {
                   stripePaymentIntentId: paymentIntentId || null,
                 },
               });
-              await bookBookingAvailability(tx, booking);
+              await bookBookingAvailability(tx, paidBooking);
+            });
+            await appendLedgerEntry({
+              entryType: 'invoice_paid',
+              bookingId,
+              invoiceId: paidInvoice?.id || invoiceId || null,
+              customerId: paidBooking?.customerId || null,
+              amountCents: Number(session.amount_total || paidInvoice?.amount || 0),
+              direction: 'customer_to_platform',
+              referenceType: 'stripe_checkout_session',
+              referenceId: String(session.id || ''),
+              note: 'Booking checkout completed',
+              payload: { paymentIntentId },
             });
             await createOrUpdatePayoutRecordsForBooking(bookingId, { status: 'pending' });
             if (paymentIntentId) {
@@ -1652,17 +2165,29 @@ createServer(async (req, res) => {
           const paymentIntent = event.data.object;
           const bookingId = paymentIntent.metadata?.bookingId;
           if (bookingId) {
+            let failedInvoice = null;
             await prisma.$transaction(async (tx) => {
               await tx.invoice.updateMany({
                 where: { bookingId, status: { in: ['draft', 'issued'] } },
                 data: { status: 'failed', failedAt: new Date() },
               });
+              failedInvoice = await tx.invoice.findFirst({ where: { bookingId } });
               if (supportsPrismaModel('payout')) {
                 await tx.payout.updateMany({
                   where: { bookingId, status: 'pending' },
                   data: { status: 'failed' },
                 });
               }
+            });
+            await appendLedgerEntry({
+              entryType: 'invoice_payment_failed',
+              bookingId,
+              invoiceId: failedInvoice?.id || null,
+              amountCents: Number(paymentIntent.amount || failedInvoice?.amount || 0),
+              direction: 'customer_to_platform',
+              referenceType: 'payment_intent',
+              referenceId: String(paymentIntent.id || ''),
+              note: 'Payment intent failed',
             });
           }
         }
@@ -3549,16 +4074,9 @@ createServer(async (req, res) => {
           request.address || '',
         ]);
         const requestCategories = resolveRequestCategoryKeywords(request);
-        if (intersects(vendorCategories, requestCategories)) return true;
-        if (intersects(vendorKeywords, requestKeywords)) return true;
-
-        const selected = (Array.isArray(request.selectedServices) ? request.selectedServices : [])
-          .map((value) => normalizeMatchText(value))
-          .join(' ');
-        if (selected && normalizeMatchText(vendor.businessName).length >= 3) {
-          if (selected.includes(normalizeMatchText(vendor.businessName))) return true;
-        }
-        return false;
+        const categoryMatch = intersects(vendorCategories, requestCategories);
+        if (vendorCategories.size === 0 || requestCategories.size === 0) return false;
+        return categoryMatch;
       });
 
       return sendJson(res, 200, { requests: filtered.map(serializeRequest) });
@@ -3864,6 +4382,126 @@ createServer(async (req, res) => {
       });
     }
 
+    if (req.method === 'GET' && path === '/api/admin/kpis') {
+      const now = new Date();
+      const since30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const [recentRequests, decidedOffers, completedBookings, allBookings, invoices, payoutsForDuration, reviews] = await Promise.all([
+        prisma.serviceRequest.findMany({
+          where: { createdAt: { gte: since30d } },
+          include: { offers: { orderBy: { createdAt: 'asc' } } },
+          orderBy: { createdAt: 'desc' },
+          take: 1000,
+        }),
+        prisma.vendorOffer.findMany({
+          where: { status: { in: ['accepted', 'declined', 'ignored'] }, createdAt: { gte: since30d } },
+          select: { status: true },
+        }),
+        prisma.booking.findMany({
+          where: { OR: [{ status: 'completed' }, { isCompleted: true }], createdAt: { gte: since30d } },
+          select: { eventDate: true, completedAt: true },
+        }),
+        prisma.booking.findMany({
+          where: { status: { in: ['paid', 'completed', 'accepted'] }, createdAt: { gte: since30d } },
+          select: { customerId: true },
+        }),
+        prisma.invoice.findMany({
+          where: { createdAt: { gte: since30d } },
+          select: { status: true, bookingId: true, paidAt: true, amount: true },
+        }),
+        supportsPrismaModel('payout')
+          ? prisma.payout.findMany({
+              where: { createdAt: { gte: since30d } },
+              select: { bookingId: true, status: true, updatedAt: true },
+            })
+          : Promise.resolve([]),
+        prisma.review.aggregate({
+          where: { createdAt: { gte: since30d } },
+          _avg: { rating: true },
+          _count: { _all: true },
+        }),
+      ]);
+
+      let firstOfferCount = 0;
+      let firstOfferMinutesTotal = 0;
+      let slaCompliant = 0;
+      for (const request of recentRequests) {
+        const firstOffer = (request.offers || []).find((offer) => offer.vendorEmail || offer.vendorName);
+        if (!firstOffer) continue;
+        const minutes = Math.max(0, (new Date(firstOffer.createdAt).getTime() - new Date(request.createdAt).getTime()) / 60000);
+        firstOfferCount += 1;
+        firstOfferMinutesTotal += minutes;
+        const offerResponseHours = Number(request.offerResponseHours || DEFAULT_RESPONSE_HOURS);
+        if (minutes <= offerResponseHours * 60) slaCompliant += 1;
+      }
+
+      const decidedCount = decidedOffers.length;
+      const acceptedCount = decidedOffers.filter((row) => row.status === 'accepted').length;
+      const acceptanceRate = decidedCount > 0 ? acceptedCount / decidedCount : 0;
+
+      const completedCount = completedBookings.length;
+      const onTimeCompleted = completedBookings.filter((row) => {
+        if (!row.completedAt) return false;
+        const eventDate = new Date(row.eventDate).getTime();
+        const completedAt = new Date(row.completedAt).getTime();
+        return completedAt <= (eventDate + 24 * 60 * 60 * 1000);
+      }).length;
+      const onTimeCompletionRate = completedCount > 0 ? onTimeCompleted / completedCount : 0;
+
+      const invoiceCount = invoices.length;
+      const refundedOrFailedInvoices = invoices.filter((row) => ['refunded', 'failed'].includes(String(row.status || '').toLowerCase())).length;
+      const disputeRate = invoiceCount > 0 ? refundedOrFailedInvoices / invoiceCount : 0;
+      const chargebackRate = 0;
+
+      const paidInvoicesByBooking = new Map(
+        invoices
+          .filter((row) => row.status === 'paid' && row.paidAt)
+          .map((row) => [row.bookingId, row.paidAt]),
+      );
+      const paidPayouts = payoutsForDuration.filter((row) => row.status === 'paid');
+      const payoutDurationsHours = paidPayouts
+        .map((row) => {
+          const paidAt = paidInvoicesByBooking.get(row.bookingId);
+          if (!paidAt) return null;
+          const diffMs = new Date(row.updatedAt).getTime() - new Date(paidAt).getTime();
+          if (!Number.isFinite(diffMs) || diffMs < 0) return null;
+          return diffMs / (60 * 60 * 1000);
+        })
+        .filter((value) => value != null);
+      const payoutTimeHours = payoutDurationsHours.length
+        ? payoutDurationsHours.reduce((sum, value) => sum + value, 0) / payoutDurationsHours.length
+        : null;
+
+      const bookingsPerCustomer = new Map();
+      for (const booking of allBookings) {
+        const customerId = String(booking.customerId || '');
+        if (!customerId) continue;
+        bookingsPerCustomer.set(customerId, (bookingsPerCustomer.get(customerId) || 0) + 1);
+      }
+      const activeCustomers = Array.from(bookingsPerCustomer.values()).filter((count) => count >= 1).length;
+      const repeatCustomers = Array.from(bookingsPerCustomer.values()).filter((count) => count >= 2).length;
+      const repeatBookingRate = activeCustomers > 0 ? repeatCustomers / activeCustomers : 0;
+
+      return sendJson(res, 200, {
+        window: {
+          from: since30d.toISOString(),
+          to: now.toISOString(),
+          days: 30,
+        },
+        kpis: {
+          requestToFirstOfferMinutes: firstOfferCount > 0 ? Math.round(firstOfferMinutesTotal / firstOfferCount) : null,
+          offerAcceptanceRate: Number(acceptanceRate.toFixed(4)),
+          onTimeCompletionRate: Number(onTimeCompletionRate.toFixed(4)),
+          disputeRate: Number(disputeRate.toFixed(4)),
+          chargebackRate: Number(chargebackRate.toFixed(4)),
+          vendorResponseSlaComplianceRate: firstOfferCount > 0 ? Number((slaCompliant / firstOfferCount).toFixed(4)) : null,
+          avgPayoutTimeHours: payoutTimeHours != null ? Number(payoutTimeHours.toFixed(2)) : null,
+          repeatBookingRate: Number(repeatBookingRate.toFixed(4)),
+          averageRating: reviews?._avg?.rating != null ? Number(Number(reviews._avg.rating).toFixed(2)) : null,
+          reviewCount: Number(reviews?._count?._all || 0),
+        },
+      });
+    }
+
     if (req.method === 'GET' && (path === '/api/admin/vendor-applications' || path === '/api/admin/vendors')) {
       const applications = await prisma.vendorApplication.findMany({
         orderBy: { createdAt: 'desc' },
@@ -3996,6 +4634,37 @@ createServer(async (req, res) => {
       });
     }
 
+    if (req.method === 'GET' && path === '/api/admin/ledger') {
+      if (!supportsPrismaModel('ledgerEntry')) {
+        return sendJson(res, 200, { entries: [], note: 'ledgerEntry model is not available yet. Run Prisma migration first.' });
+      }
+      const entries = await prisma.ledgerEntry.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 500,
+      });
+      return sendJson(res, 200, {
+        entries: entries.map((row) => ({
+          id: row.id,
+          entryType: row.entryType,
+          bookingId: row.bookingId || null,
+          requestId: row.requestId || null,
+          offerId: row.offerId || null,
+          invoiceId: row.invoiceId || null,
+          payoutId: row.payoutId || null,
+          vendorId: row.vendorId || null,
+          customerId: row.customerId || null,
+          amountCents: row.amountCents,
+          currency: row.currency,
+          direction: row.direction || null,
+          referenceType: row.referenceType || null,
+          referenceId: row.referenceId || null,
+          note: row.note || null,
+          payload: row.payload || null,
+          createdAt: row.createdAt,
+        })),
+      });
+    }
+
     if (req.method === 'GET' && path === '/api/admin/payments') {
       const [invoiceCounts, payoutCounts, recentInvoices, recentPayouts] = await Promise.all([
         prisma.invoice.groupBy({
@@ -4069,6 +4738,33 @@ createServer(async (req, res) => {
       });
     }
 
+    if (req.method === 'GET' && path.match(/^\/api\/admin\/bookings\/[^/]+\/accounting-pack$/)) {
+      const bookingId = path.split('/')[4];
+      const pack = await buildAdminBookingAccountingPack(bookingId, req);
+      if (!pack) return sendJson(res, 404, { error: 'Booking not found' });
+      return sendJson(res, 200, pack);
+    }
+
+    if (req.method === 'GET' && path.match(/^\/api\/admin\/bookings\/[^/]+\/accounting-pack\.pdf$/)) {
+      const bookingId = path.split('/')[4];
+      const pack = await buildAdminBookingAccountingPack(bookingId, req);
+      if (!pack) return sendJson(res, 404, { error: 'Booking not found' });
+
+      const lines = buildAccountingPackPdfLines(pack);
+      const pdfBuffer = buildSimplePdfBuffer(lines);
+      const corsOrigin = resolveCorsOrigin(req);
+      res.writeHead(200, {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="accounting-pack-${bookingId}.pdf"`,
+        'Access-Control-Allow-Origin': corsOrigin,
+        'Access-Control-Allow-Methods': 'GET,POST,PATCH,OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-admin-key, x-admin-setup-key',
+        Vary: 'Origin',
+      });
+      res.end(pdfBuffer);
+      return;
+    }
+
     if (req.method === 'POST' && path.match(/^\/api\/admin\/payouts\/[^/]+\/release$/)) {
       const payoutId = path.split('/')[4];
       if (!supportsPrismaModel('payout')) return sendJson(res, 400, { error: 'payout model is not available yet' });
@@ -4115,6 +4811,42 @@ createServer(async (req, res) => {
         ...result,
         note: 'Legacy JSON vendor compliance backfilled into Prisma vendorCompliance table.',
       });
+    }
+
+    if (req.method === 'POST' && path.match(/^\/api\/admin\/vendor-applications\/[^/]+\/compliance\/(contract|training)\/confirm$/)) {
+      const [, , , , applicationId, , field] = path.split('/');
+      const vendor = await prisma.vendorApplication.findUnique({ where: { id: applicationId } });
+      if (!vendor) return sendJson(res, 404, { error: 'Vendor application not found' });
+
+      const nowIso = new Date().toISOString();
+      const compliance = await updateVendorCompliance(vendor.email, (current) => ({
+        ...current,
+        ...(field === 'contract'
+          ? {
+              contractAccepted: true,
+              contractAcceptedAt: current.contractAcceptedAt || nowIso,
+              contractVersion: current.contractVersion || VENDOR_CONTRACT_VERSION,
+              contractAcceptedByUserId: current.contractAcceptedByUserId || getAdminActorId(req),
+              contractAcceptedIP: current.contractAcceptedIP || getClientIp(req),
+            }
+          : {
+              trainingCompleted: true,
+              trainingCompletedAt: current.trainingCompletedAt || nowIso,
+            }),
+      }));
+
+      await prisma.$transaction(async (tx) => {
+        const fresh = await tx.vendorApplication.findUnique({ where: { id: vendor.id } });
+        if (!fresh) return;
+        await syncVendorProfileActivationStatus(tx, fresh);
+      });
+
+      await writeAdminAuditLog(req, `vendor_${field}_confirmed`, applicationId, {
+        vendorEmail: vendor.email,
+        confirmedAt: nowIso,
+      });
+
+      return sendJson(res, 200, { compliance: buildVendorActivationState(vendor, compliance) });
     }
 
     if (req.method === 'PATCH' && path.match(/^\/api\/admin\/vendor-applications\/[^/]+$/)) {
@@ -4242,7 +4974,7 @@ createServer(async (req, res) => {
       const inquiries = await prisma.vendorInquiry.findMany({
         orderBy: { createdAt: 'desc' },
       });
-      return sendJson(res, 200, { inquiries });
+      return sendJson(res, 200, { inquiries: inquiries.map(serializeVendorInquiryForApi) });
     }
 
     if (req.method === 'POST' && path.match(/^\/api\/admin\/inquiries\/[^/]+\/reply$/)) {
@@ -4260,7 +4992,19 @@ createServer(async (req, res) => {
       const inquiry = await prisma.vendorInquiry.findUnique({ where: { id: inquiryId } });
       if (!inquiry) return sendJson(res, 404, { error: 'Inquiry not found' });
 
-      await sendMailSafe({
+      const replyPayload = [
+        `Replied at: ${new Date().toISOString()}`,
+        replyMessage,
+        ...(attachmentUrls.length > 0
+          ? [
+              '',
+              'Attachments / Links:',
+              ...attachmentUrls.map((url) => `- ${url}`),
+            ]
+          : []),
+      ].join('\n');
+
+      const mailResult = await sendMailSafe({
         to: inquiry.vendorEmail,
         subject: `Admin reply: ${inquiry.subject}`,
         text: [
@@ -4269,28 +5013,43 @@ createServer(async (req, res) => {
           'This is a reply from EventVenue admin regarding your inquiry:',
           `"${inquiry.subject}"`,
           '',
-          replyMessage,
-          ...(attachmentUrls.length > 0
-            ? [
-                '',
-                'Attachments / Links:',
-                ...attachmentUrls.map((url) => `- ${url}`),
-              ]
-            : []),
+          replyPayload,
         ].join('\n'),
       });
 
       const updated = await prisma.vendorInquiry.update({
         where: { id: inquiryId },
-        data: { status: 'answered' },
+        data: {
+          status: 'answered',
+          message: `${splitInquiryMessage(inquiry.message).vendorMessage}${ADMIN_REPLY_MARKER}${replyPayload}`,
+        },
       });
 
       await writeAdminAuditLog(req, 'vendor_inquiry_replied', inquiryId, {
         vendorEmail: inquiry.vendorEmail,
         attachmentUrls,
+        emailSent: mailResult.sent,
+        emailError: mailResult.sent ? null : mailResult.error,
       });
 
-      return sendJson(res, 200, { inquiry: updated, replied: true });
+      return sendJson(res, 200, {
+        inquiry: serializeVendorInquiryForApi(updated),
+        replied: true,
+        emailSent: mailResult.sent,
+        emailError: mailResult.sent ? null : mailResult.error,
+      });
+    }
+
+    if (req.method === 'GET' && path === '/api/vendor/inquiries') {
+      const auth = requireJwt(req, 'vendor');
+      const vendorEmail = String(auth.email || '').trim();
+      if (!vendorEmail) return sendJson(res, 401, { error: 'Unauthorized' });
+
+      const inquiries = await prisma.vendorInquiry.findMany({
+        where: { vendorEmail: { equals: vendorEmail, mode: 'insensitive' } },
+        orderBy: { createdAt: 'desc' },
+      });
+      return sendJson(res, 200, { inquiries: inquiries.map(serializeVendorInquiryForApi) });
     }
 
     if (req.method === 'GET' && path === '/api/services-catalog') {

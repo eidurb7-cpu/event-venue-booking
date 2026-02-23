@@ -720,6 +720,46 @@ export interface AdminAuditLogRow {
   createdAt: string;
 }
 
+export interface AdminKpis {
+  window: {
+    from: string;
+    to: string;
+    days: number;
+  };
+  kpis: {
+    requestToFirstOfferMinutes: number | null;
+    offerAcceptanceRate: number;
+    onTimeCompletionRate: number;
+    disputeRate: number;
+    chargebackRate: number;
+    vendorResponseSlaComplianceRate: number | null;
+    avgPayoutTimeHours: number | null;
+    repeatBookingRate: number;
+    averageRating: number | null;
+    reviewCount: number;
+  };
+}
+
+export interface LedgerEntryRow {
+  id: string;
+  entryType: string;
+  bookingId?: string | null;
+  requestId?: string | null;
+  offerId?: string | null;
+  invoiceId?: string | null;
+  payoutId?: string | null;
+  vendorId?: string | null;
+  customerId?: string | null;
+  amountCents?: number | null;
+  currency?: string | null;
+  direction?: string | null;
+  referenceType?: string | null;
+  referenceId?: string | null;
+  note?: string | null;
+  payload?: Record<string, unknown> | null;
+  createdAt: string;
+}
+
 export function getAdminVendorCompliance(adminKey: string) {
   return request('/api/admin/vendor-compliance', {
     method: 'GET',
@@ -732,6 +772,20 @@ export function getAdminPayouts(adminKey: string) {
     method: 'GET',
     headers: withAdminToken(adminKey),
   }) as Promise<{ payouts: AdminPayoutRow[]; note?: string }>;
+}
+
+export function getAdminKpis(adminKey: string) {
+  return request('/api/admin/kpis', {
+    method: 'GET',
+    headers: withAdminToken(adminKey),
+  }) as Promise<AdminKpis>;
+}
+
+export function getAdminLedger(adminKey: string) {
+  return request('/api/admin/ledger', {
+    method: 'GET',
+    headers: withAdminToken(adminKey),
+  }) as Promise<{ entries: LedgerEntryRow[]; note?: string }>;
 }
 
 export function releaseAdminPayout(adminKey: string, payoutId: string) {
@@ -775,6 +829,145 @@ export function getAdminPayments(adminKey: string) {
   }>;
 }
 
+export function getAdminBookingAccountingPack(adminKey: string, bookingId: string) {
+  return request(`/api/admin/bookings/${encodeURIComponent(bookingId)}/accounting-pack`, {
+    method: 'GET',
+    headers: withAdminToken(adminKey),
+  }) as Promise<{
+    generatedAt: string;
+    booking: {
+      id: string;
+      status: string;
+      eventDate?: string | null;
+      createdAt?: string | null;
+      updatedAt?: string | null;
+    };
+    customer: {
+      id?: string | null;
+      name?: string | null;
+      email?: string | null;
+      address?: string | null;
+      phone?: string | null;
+    };
+    services: Array<{
+      bookingItemId: string;
+      serviceId: string;
+      serviceTitle?: string | null;
+      serviceCategory?: string | null;
+      status: string;
+      priceOfferedCents: number;
+      finalPriceCents?: number | null;
+      vendor: {
+        vendorId: string;
+        businessName?: string | null;
+        contactName?: string | null;
+        email?: string | null;
+        city?: string | null;
+        websiteUrl?: string | null;
+      };
+    }>;
+    agreement?: {
+      id: string;
+      agreementVersion?: string | null;
+      customerAccepted: boolean;
+      customerAcceptedAt?: string | null;
+      customerAcceptedIP?: string | null;
+      vendorAccepted: boolean;
+      vendorAcceptedAt?: string | null;
+    } | null;
+    invoice?: {
+      id: string;
+      status: string;
+      amountCents: number;
+      amountEur: number;
+      stripeSessionId?: string | null;
+      issuedAt?: string | null;
+      paidAt?: string | null;
+      failedAt?: string | null;
+    } | null;
+    payouts: Array<{
+      id: string;
+      status: string;
+      stripeTransferId?: string | null;
+      grossAmountCents: number;
+      grossAmountEur: number;
+      platformFeeCents: number;
+      platformFeeEur: number;
+      vendorNetAmountCents: number;
+      vendorNetAmountEur: number;
+      vendor: {
+        vendorId: string;
+        businessName?: string | null;
+        contactName?: string | null;
+        email?: string | null;
+        city?: string | null;
+        websiteUrl?: string | null;
+      };
+      createdAt?: string | null;
+      updatedAt?: string | null;
+    }>;
+    totals: {
+      invoiceAmountCents: number;
+      invoiceAmountEur: number;
+      payoutGrossCents: number;
+      payoutPlatformFeeCents: number;
+      payoutVendorNetCents: number;
+      payoutGrossEur: number;
+      payoutPlatformFeeEur: number;
+      payoutVendorNetEur: number;
+    };
+    offerHistory: Array<{
+      id: string;
+      bookingItemId: string;
+      actorRole: string;
+      type: string;
+      offerVersion: number;
+      priceCents?: number | null;
+      reason?: string | null;
+      createdAt?: string | null;
+    }>;
+    adminAuditTrail: Array<{
+      id: string;
+      adminId: string;
+      action: string;
+      targetId?: string | null;
+      metaJson?: string | null;
+      createdAt?: string | null;
+    }>;
+    approvalCertificate: {
+      certificateId: string;
+      statementText: string;
+      issuedAt: string;
+      issuedBy: string;
+    };
+  }>;
+}
+
+export async function downloadAdminBookingAccountingPackPdf(adminKey: string, bookingId: string) {
+  const controller = new AbortController();
+  const timeoutMs = Number.isFinite(API_TIMEOUT_MS) && API_TIMEOUT_MS > 0 ? API_TIMEOUT_MS : 90000;
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/bookings/${encodeURIComponent(bookingId)}/accounting-pack.pdf`, {
+      method: 'GET',
+      headers: withAdminToken(adminKey),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `Request failed: ${res.status}`);
+    }
+    return await res.blob();
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`API Timeout (${Math.round(timeoutMs / 1000)}s) while generating PDF.`);
+    }
+    throw err;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 export function backfillAdminVendorCompliance(adminKey: string) {
   return request('/api/admin/vendor-compliance/backfill', {
     method: 'POST',
@@ -795,6 +988,17 @@ export function updateVendorApplicationStatus(
   }) as Promise<{ application: VendorApplication }>;
 }
 
+export function confirmVendorCompliance(
+  adminKey: string,
+  applicationId: string,
+  field: 'contract' | 'training',
+) {
+  return request(`/api/admin/vendor-applications/${applicationId}/compliance/${field}/confirm`, {
+    method: 'POST',
+    headers: withAdminToken(adminKey),
+  }) as Promise<{ compliance: VendorCompliance }>;
+}
+
 export function getAdminRequests(adminKey: string) {
   return request('/api/admin/requests', {
     method: 'GET',
@@ -806,14 +1010,14 @@ export function seedAdminServices(adminToken: string) {
   return request('/api/admin/services/seed', {
     method: 'POST',
     headers: withAdminToken(adminToken),
-  });
+  }) as Promise<{ seeded: boolean; count: number; services?: ServiceCatalogItem[] }>;
 }
 
 export function seedAdminVendors(adminToken: string) {
   return request('/api/admin/vendors/seed-demo', {
     method: 'POST',
     headers: withAdminToken(adminToken),
-  });
+  }) as Promise<{ seeded: boolean; count: number; note?: string; vendors?: VendorApplication[] }>;
 }
 
 export function getAdminInquiries(adminToken: string) {
@@ -826,6 +1030,7 @@ export function getAdminInquiries(adminToken: string) {
       vendorEmail: string;
       subject: string;
       message: string;
+      adminReply?: string | null;
       status: string;
       createdAt: string;
     }>;
@@ -848,10 +1053,27 @@ export function replyAdminInquiry(
       vendorEmail: string;
       subject: string;
       message: string;
+      adminReply?: string | null;
       status: string;
       createdAt: string;
     };
     replied: boolean;
+    emailSent?: boolean;
+    emailError?: string | null;
+  }>;
+}
+
+export function getVendorInquiries() {
+  return request('/api/vendor/inquiries', { method: 'GET' }) as Promise<{
+    inquiries: Array<{
+      id: string;
+      vendorEmail: string;
+      subject: string;
+      message: string;
+      adminReply?: string | null;
+      status: string;
+      createdAt: string;
+    }>;
   }>;
 }
 
