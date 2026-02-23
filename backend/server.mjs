@@ -1114,11 +1114,9 @@ async function getVendorCompliance(vendorEmail) {
 async function updateVendorCompliance(vendorEmail, updater) {
   const store = await readVendorComplianceStore();
   const key = normalizeVendorEmail(vendorEmail);
-  const current = {
-    ...defaultVendorCompliance(),
-    ...(store.vendors[key] || {}),
-  };
+  const current = await getVendorCompliance(vendorEmail);
   const next = {
+    ...defaultVendorCompliance(),
     ...current,
     ...updater(current),
     updatedAt: new Date().toISOString(),
